@@ -1,0 +1,21 @@
+# ABOUTME: sops creation rules -- which recipients can decrypt which files.
+# To onboard another operator, add their age public key to the appropriate rule and run
+# `sops updatekeys secrets/*.sops.env` to re-encrypt with the new recipient list.
+
+creation_rules:
+  # Per-service dotenv files -- decrypted by ansible at deploy time, pushed to the
+  # droplet as .env files inside each compose project.
+  - path_regex: ^secrets/.*\.sops\.env$
+    key_groups:
+      - age:
+          # mason -- laptop
+          - age17u5zkzgr4ca49sl9n42zk6aruq8d5xntnuxkhyjwvku80tx93afqm7a0fz
+
+  # Ansible-time YAML vars -- loaded into the play with community.sops.load_vars
+  # (e.g. the host Tailscale auth key, the DigitalOcean token if we move it here).
+  # Never crosses to the droplet -- consumed only on the controller.
+  - path_regex: ^secrets/.*\.sops\.yaml$
+    key_groups:
+      - age:
+          # mason -- laptop
+          - age17u5zkzgr4ca49sl9n42zk6aruq8d5xntnuxkhyjwvku80tx93afqm7a0fz

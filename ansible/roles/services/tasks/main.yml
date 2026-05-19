@@ -1,0 +1,63 @@
+# ABOUTME: Clone the infrastructure repo into services_root, clone service repos as
+# subdirs, decrypt+push .env files, bring up the unified compose stack.
+
+- name: Check whether services_root is already an infrastructure repo checkout
+  ansible.builtin.stat:
+    path: "{{ services_root }}/.git"
+  register: services_root_git
+
+# One-time migration: the pre-restructure layout had /srv/pytexas as a plain
+# directory with files copied in by ansible. The new layout makes it a git
+# checkout of the infrastructure repo. If we find a non-repo directory, blow
+# it away so the clone can proceed (Docker volumes survive -- they live outside).
+- name: Remove non-repo contents of services_root (one-time migration)
+  ansible.builtin.file:
+    path: "{{ services_root }}"
+    state: absent
+  when: not services_root_git.stat.exists
+
+- name: Clone or update the infrastructure repo at services_root
+  ansible.builtin.git:
+    repo: "{{ infrastructure_repo_url }}"
+    dest: "{{ services_root }}"
+    version: "{{ infrastructure_repo_ref }}"
+    update: true
+    force: false
+  become_user: "{{ deploy_user }}"
+
+- name: Ensure services_root ownership is the deploy user
+  ansible.builtin.file:
+    path: "{{ services_root }}"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    recurse: false
+    mode: "0755"
+
+- name: Clone or update service repositories as subdirectories
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    dest: "{{ services_root }}/{{ item.name }}"
+    version: "{{ item.ref }}"
+    update: true
+    force: false
+  loop: "{{ services_repos }}"
+  loop_control:
+    label: "{{ item.name }}"
+  become_user: "{{ deploy_user }}"
+
+- name: Decrypt sops .env files locally and push plaintext to droplet
+  ansible.builtin.copy:
+    content: "{{ lookup('community.sops.sops', playbook_dir + '/../secrets/' + item.src) }}"
+    dest: "{{ [services_root, item.dest, '.env'] | reject('equalto', '') | join('/') }}"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0600"
+  loop: "{{ secrets_files }}"
+  loop_control:
+    label: "{{ item.src }} -> {{ item.dest | default('(root)') }}/.env"
+  no_log: true
+  tags: [secrets]
+
+- name: Bring up the stack
+  ansible.builtin.include_tasks: compose-up.yml
+  tags: [compose-up]

@@ -1,0 +1,73 @@
+# ABOUTME: Install Tailscale and bring it up with an auth key.
+# Auth key must be present in the tailscale_auth_key var (default sourced from $TAILSCALE_AUTH_KEY).
+
+- name: Assert that a tailscale auth key is available
+  ansible.builtin.assert:
+    that:
+      - tailscale_auth_key | length > 0
+    fail_msg: >
+      Set the TAILSCALE_AUTH_KEY environment variable (or override tailscale_auth_key)
+      before running this role. Generate one at https://login.tailscale.com/admin/settings/keys
+
+- name: Add Tailscale apt GPG key
+  # Path must match what the .list file Tailscale ships references:
+  #   deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] ...
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: Add Tailscale apt repository
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.tailscale-keyring.list"
+    dest: /etc/apt/sources.list.d/tailscale.list
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  register: tailscale_repo
+
+- name: Install tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+    lock_timeout: 120
+
+- name: Enable IP forwarding for Tailscale subnet routing / exit-node future-proofing
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv6.conf.all.forwarding
+
+- name: Ensure tailscaled is running
+  ansible.builtin.service:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Check current tailscale status
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Bring tailscale up
+  ansible.builtin.command: >-
+    tailscale up
+    --authkey={{ tailscale_auth_key }}
+    --hostname={{ tailscale_hostname }}
+    {% if tailscale_ssh %}--ssh{% endif %}
+    {{ tailscale_extra_args }}
+  when: >
+    tailscale_status.rc != 0
+    or (tailscale_status.stdout | from_json).BackendState != 'Running'
+  no_log: true

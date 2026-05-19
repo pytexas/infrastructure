@@ -1,0 +1,66 @@
+# ABOUTME: Variables shared across every host in the inventory.
+# Override per-host by adding host_vars/<hostname>.yml; override per-environment with inventory.local.yml.
+
+# --- Bootstrap --------------------------------------------------------------
+deploy_user: pytexas
+deploy_user_authorized_keys: []  # list of public-key strings; if empty, the role copies root's authorized_keys
+timezone: Etc/UTC
+
+# --- Docker ----------------------------------------------------------------
+docker_users:
+  - "{{ deploy_user }}"
+
+# --- Tailscale -------------------------------------------------------------
+# tailscale_auth_key is loaded from secrets/ansible.sops.yaml by the pre_tasks in
+# playbook.yml. The TAILSCALE_AUTH_KEY env var still works as a fallback when the sops
+# file is absent (useful in CI or for one-off bootstrap runs). Generate auth keys with
+# "ephemeral=false, reusable=false, preauth=true" at
+# https://login.tailscale.com/admin/settings/keys
+tailscale_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') | default('', true) }}"
+tailscale_hostname: "{{ inventory_hostname }}"
+tailscale_ssh: true
+tailscale_extra_args: ""
+
+# --- Temporal --------------------------------------------------------------
+# Retention for the default namespace. Accepts Go-duration forms (e.g. "168h")
+# OR shorthand "Nd" (days). The retention task in roles/services/tasks/compose-up.yml
+# normalizes to hours and only calls `namespace update` when the current value differs.
+temporal_namespace_retention: 180d
+
+# --- Infrastructure repo (cloned onto the droplet as the services root) ---
+# The droplet's /srv/pytexas IS a clone of this infra repo. Service repos clone
+# as subdirectories inside it. `just pull infra` on the droplet does git pull
+# here. Repo MUST be reachable as the deploy user -- public repo OR a deploy key
+# configured for the pytexas user (see secrets/README.md for setup).
+infrastructure_repo_url: "https://github.com/pytexas/infrastructure.git"
+infrastructure_repo_ref: main
+
+# --- Services (compose glue) ----------------------------------------------
+# durable-wordle is intentionally NOT here -- it's a reference for hosting Temporal in
+# Compose, not a deployment target.
+services_root: "/srv/pytexas"
+# Each entry becomes an `include:` line in the master compose. The master
+# substrate + every service runs as a single unified compose project, so
+# `docker compose up/down` from /srv/pytexas affects everything.
+services_repos:
+  - name: pretix-discord-middleware
+    repo: https://github.com/pytexas/pretix-discord-middleware.git
+    ref: main
+    compose_file: docker-compose.yml
+  - name: pytexas-discord-bot
+    repo: https://github.com/pytexas/pytexas-discord-bot.git
+    ref: main
+    compose_file: docker-compose.yaml
+
+# --- Secrets (sops dotenv files -> droplet) -------------------------------
+# Each entry maps an encrypted file in infrastructure/secrets/ to its plaintext
+# destination on the droplet. Decryption happens on the controller (operator laptop)
+# using the operator's age key; only plaintext crosses the SSH connection. The droplet
+# never holds a decryption key.
+secrets_files:
+  - src: pytexas.sops.env
+    dest: ""
+  - src: pretix-discord-middleware.sops.env
+    dest: pretix-discord-middleware
+  - src: pytexas-discord-bot.sops.env
+    dest: pytexas-discord-bot

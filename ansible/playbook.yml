@@ -1,0 +1,37 @@
+# ABOUTME: Top-level playbook -- run roles in order against the pytexas group.
+# `ansible-playbook playbook.yml` or `just ansible-run` from the repo root.
+
+- name: Configure PyTexas droplets
+  hosts: pytexas
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Check for sops-encrypted ansible vars
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../secrets/ansible.sops.yaml"
+      register: ansible_sops_file
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Loads variables like `tailscale_auth_key` into play scope. Values here override
+    # group_vars defaults; if the file doesn't exist yet, fall back to env-var lookups.
+    - name: Load sops-encrypted ansible vars
+      community.sops.load_vars:
+        file: "{{ playbook_dir }}/../secrets/ansible.sops.yaml"
+      when: ansible_sops_file.stat.exists
+      delegate_to: localhost
+      run_once: true
+      become: false
+      no_log: true
+
+  roles:
+    - role: bootstrap
+      tags: [bootstrap]
+    - role: docker
+      tags: [docker]
+    - role: tailscale
+      tags: [tailscale]
+    - role: services
+      tags: [services]
