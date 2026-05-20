@@ -109,14 +109,16 @@ below for the operator-side flow.
 ### 5. Verify
 
 After an existing operator has merged your public key and rekeyed the files (see below),
-clone this repo and run:
+clone this repo and confirm you can decrypt every file with your local key:
 
 ```bash
-just sops-check
+for f in secrets/*.sops.env secrets/*.sops.yaml; do
+    sops -d "$f" >/dev/null && echo "OK   $f" || echo "FAIL $f"
+done
 ```
 
 Every file should report `OK`. If anything reports `FAIL`, the rekey hasn't propagated
-yet -- the operator needs to commit the result of `sops updatekeys`.
+yet -- the operator needs to commit the result of `just rekey`.
 
 ## Files in this directory
 
@@ -134,17 +136,21 @@ and are loaded by ansible itself on the controller -- they never cross to the dr
 
 ## Editing
 
+Run the `just` recipes from `bootstrap/` (or use raw `sops` from anywhere).
+
 ```bash
 # Create or edit (opens $EDITOR with plaintext; re-encrypts on save)
-just sops-edit secrets/pytexas.sops.env
-# or
+cd bootstrap && just sops secrets/pytexas.sops.env
+# or, raw:
 sops secrets/pytexas.sops.env
 
 # Read-only peek
 sops -d secrets/pytexas.sops.env
 
 # Sanity-check that you can decrypt every file with your local key
-just sops-check
+for f in secrets/*.sops.env secrets/*.sops.yaml; do
+    sops -d "$f" >/dev/null && echo "OK   $f" || echo "FAIL $f"
+done
 ```
 
 ## Variable reference
@@ -155,18 +161,22 @@ before deploying.
 
 ### `terraform.sops.env`
 
-Credentials terraform needs to talk to DigitalOcean (the platform API + the Spaces
-S3-compatible API for remote state). Loaded by every `just tf-*` recipe via
-`sops exec-env`, so the values are decrypted in memory and exported only for the
-terraform child process.
+Credentials terraform needs to talk to DigitalOcean (the platform API for droplets/DNS,
+plus the Spaces S3-compatible API for remote state). The `bootstrap/justfile` terraform
+recipes wrap terraform with `sops exec-env` on this file, so the values are decrypted in
+memory and exported only for the terraform child process.
 
 ```dotenv
 # DigitalOcean platform API token -- read/write. Generate at
 # https://cloud.digitalocean.com/account/api/tokens
-DIGITALOCEAN_TOKEN=dop_v1_REPLACE_ME
+TF_VAR_do_token=dop_v1_REPLACE_ME
 
-# Spaces access key scoped to the tfstate bucket. terraform creates this for you;
-# capture it from the apply outputs with `just tf-capture-spaces-creds`.
+# Spaces access key -- the same key you generated manually at
+# https://cloud.digitalocean.com/spaces/access_keys for the bootstrap.
+# The DO provider reads the SPACES_* names (for creating/managing the bucket);
+# the s3 backend reads the AWS_* names (for state read/write). Same values.
+SPACES_ACCESS_KEY_ID=REPLACE_ME
+SPACES_SECRET_ACCESS_KEY=REPLACE_ME
 AWS_ACCESS_KEY_ID=REPLACE_ME
 AWS_SECRET_ACCESS_KEY=REPLACE_ME
 ```
@@ -238,8 +248,8 @@ When someone else needs to be able to decrypt and deploy:
 3. **You** re-encrypt every existing secrets file with the new recipient list:
 
    ```bash
-   just sops-rekey
-   # equivalent to: sops updatekeys secrets/*.sops.env
+   cd bootstrap && just rekey
+   # equivalent to: sops updatekeys secrets/*.sops.env secrets/*.sops.yaml
    ```
 
    This does **not** change the underlying plaintext; it adds a new encrypted copy of
@@ -253,8 +263,8 @@ When someone else needs to be able to decrypt and deploy:
 When someone leaves or their key is compromised:
 
 1. Remove their `age1...` line from `.sops.yaml`.
-2. Run `just sops-rekey`. New encrypted copies of the data keys are written **without**
-   the removed recipient.
+2. Run `cd bootstrap && just rekey`. New encrypted copies of the data keys are written
+   **without** the removed recipient.
 3. Commit `.sops.yaml` and the re-encrypted files.
 
 **Important caveat:** the historical git commits still contain ciphertext that the
@@ -277,7 +287,13 @@ If you lose access to your private key (laptop died, disk wiped, etc):
    chmod 600 ~/.config/sops/age/keys.txt
    ```
 
-4. Verify: `just sops-check`.
+4. Verify:
+
+   ```bash
+   for f in secrets/*.sops.env secrets/*.sops.yaml; do
+       sops -d "$f" >/dev/null && echo "OK   $f" || echo "FAIL $f"
+   done
+   ```
 
 If the laptop itself was compromised (theft, malware), don't just restore the same key
 -- generate a fresh one and follow [Adding a new operator](#adding-a-new-operator) with
@@ -288,6 +304,8 @@ plaintext.
 ## Rotation
 
 - **Rotate the underlying secret** (Tailscale auth key, Discord token, API key) any time
-  you suspect leakage, when an operator leaves, or on a schedule. Edit the relevant
-  `.sops.env`, re-deploy with `just ansible-tag secrets`.
+  you suspect leakage, when an operator leaves, or on a schedule. Edit the relevant file
+  (`cd bootstrap && just sops secrets/<file>`), then `just apply` to re-push the decrypted
+  `.env` and restart affected containers. To push secrets only (no full playbook):
+  `cd ansible && ansible-playbook -i inventory.local.yml playbook.yml --tags secrets`.
 - **Rotate an age key** if a laptop is compromised. See [Recovery](#recovery--lost-laptop).

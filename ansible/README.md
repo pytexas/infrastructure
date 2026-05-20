@@ -1,52 +1,72 @@
 # Ansible
 
-Configures the droplet(s) terraform creates: hardens SSH, installs Docker, joins the tailnet, and clones the service repos.
+Configures the droplet terraform creates: hardens SSH, installs Docker + Tailscale,
+clones the infrastructure repo and service repos into `/srv/pytexas`, pushes decrypted
+secrets, and brings up the unified docker compose stack.
+
+Normally you don't run ansible directly — `just apply` (from `bootstrap/`) renders the
+inventory from terraform output and runs the playbook. The commands below are for when
+you want to drive it by hand.
 
 ## Prereqs
 
 - Ansible >= 2.16
-- `ansible-galaxy collection install -r requirements.yml` (installs `community.sops`,
-  `community.docker`, `community.general`, `ansible.posix`)
+- `just setup` (from `bootstrap/`) — installs `community.sops`, `community.docker`,
+  `community.general`, `ansible.posix`. Equivalent to
+  `ansible-galaxy collection install -r requirements.yml`.
 - An age keypair at `~/.config/sops/age/keys.txt` (see `../secrets/README.md`)
 - `secrets/ansible.sops.yaml` populated with `tailscale_auth_key`
   (or, as a fallback, the `TAILSCALE_AUTH_KEY` env var exported in your shell)
 
 ## Inventory
 
-`inventory.yml` is committed with `REPLACE_WITH_DROPLET_IPV4` as a placeholder. Three options:
-
-1. **Quick**: edit `inventory.yml` directly after `terraform apply`.
-2. **Repeatable**: copy to `inventory.local.yml` (gitignored) and use `-i inventory.local.yml`.
-3. **Automated**: pipe `terraform output -raw droplet_ipv4` into a generated inventory (see `justfile`).
-
-## Running
+`inventory.yml` is committed with `REPLACE_WITH_DROPLET_IPV4` as a placeholder.
+`just apply` renders `inventory.local.yml` (gitignored) from
+`terraform output -raw droplet_ipv4` automatically. To run by hand:
 
 ```bash
-# pre_tasks load tailscale_auth_key from ../secrets/ansible.sops.yaml automatically.
-# If you prefer not to commit it yet, export TAILSCALE_AUTH_KEY in your shell instead.
+ip=$(cd ../terraform && sops exec-env ../secrets/terraform.sops.env 'terraform output -raw droplet_ipv4')
+sed "s/REPLACE_WITH_DROPLET_IPV4/$ip/" inventory.yml > inventory.local.yml
+```
 
+## Running by hand
+
+```bash
 # Dry run first
-ansible-playbook playbook.yml --check --diff
+ansible-playbook -i inventory.local.yml playbook.yml --check --diff
 
 # For real
-ansible-playbook playbook.yml
+ansible-playbook -i inventory.local.yml playbook.yml
+
+# Just one role
+ansible-playbook -i inventory.local.yml playbook.yml --tags bootstrap,docker
+
+# Skip the compose-up step (deploy files/config without restarting containers)
+ansible-playbook -i inventory.local.yml playbook.yml --skip-tags compose-up
 ```
 
-Run specific roles with tags:
-
-```bash
-ansible-playbook playbook.yml --tags bootstrap,docker
-```
+The `tailscale_auth_key` is loaded from `../secrets/ansible.sops.yaml` by the playbook's
+`pre_tasks` via `community.sops.load_vars`. The `TAILSCALE_AUTH_KEY` env var is honored
+as a fallback if the sops file is absent.
 
 ## Roles, in order
 
-1. **bootstrap** -- baseline packages, deploy user, SSH lockdown (no root, no passwords), unattended-upgrades, fail2ban.
-2. **docker** -- Docker CE + compose plugin from Docker's official apt repo.
-3. **tailscale** -- installs tailscale, enables IP forwarding, runs `tailscale up` with the supplied auth key. Tailscale SSH is enabled by default so you can drop port 22 from the cloud firewall after the first run.
-4. **services** -- clones the service repos into `/srv/pytexas/<name>` and drops the master `compose/docker-compose.yml` next to them. **Does not** run `docker compose up` yet -- the per-service refactor (moving each repo's temporal/caddy behind a `standalone` profile) lands next.
+1. **bootstrap** — baseline packages (incl. `just`), deploy user `pytexas`, SSH lockdown
+   (no root, no passwords), unattended-upgrades, fail2ban. Waits on `cloud-init status
+   --wait` first to avoid first-boot apt lock contention.
+2. **docker** — Docker CE + compose plugin from Docker's official apt repo.
+3. **tailscale** — installs tailscale, enables IP forwarding, runs `tailscale up` with
+   the supplied auth key and `--ssh`. Tailscale SSH lets you drop port 22 from the cloud
+   firewall after the first run.
+4. **services** — clones the infrastructure repo into `/srv/pytexas` and the service
+   repos as subdirectories, decrypts the sops `.env` files on the controller and pushes
+   plaintext to the droplet at `mode 0600`, then brings up the unified compose project
+   (`docker compose up -d`). Also sets the Temporal namespace retention.
 
 ## What this does NOT do
 
-- Open / close firewall ports on the droplet itself (we rely on the DigitalOcean cloud firewall managed by terraform).
-- Manage container secrets / `.env` files. Those will be handled with `ansible-vault` or sops once we wire compose-up.
-- Configure DNS records.
+- Open / close firewall ports on the droplet itself — we rely on the DigitalOcean cloud
+  firewall managed by terraform.
+- Manage the DNS zone — terraform owns the `infra.pytx.org` records.
+- Hold any decryption key on the droplet — sops decryption happens on the controller
+  (your laptop) and only plaintext `.env` files land on the droplet.

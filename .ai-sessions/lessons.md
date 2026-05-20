@@ -2,17 +2,16 @@
 
 ## Recent
 <!-- 10 most recent lessons, newest first -->
-- Just's `set working-directory := ".."` cascades into recursive `just` invocations — a `default: @just --list` recipe in a nested justfile will silently load the parent's justfile instead of its own. Use `repo_root := justfile_directory() / ".."` + explicit `cd` per recipe instead (2026-05-18)
+- After a mid-session restructure (renamed recipes, moved paths), grep every doc for the old names before calling it done — doc drift stays invisible until someone follows the README and hits a recipe/path that no longer exists (2026-05-20)
+- gitleaks and pre-commit's `check-yaml` both need the sops-encrypted files allowlisted/excluded — they look like valid YAML/dotenv but aren't plain-parseable, and their `ENC[...]` / age blocks are not leaks (2026-05-20)
+- Just's `set working-directory := ".."` cascades into recursive `just` invocations — a `default: @just --list` recipe in a nested justfile will silently load the parent's justfile instead of its own. Use `repo_root := justfile_directory() / ".."` + explicit `cd` per recipe instead. Test with bare `just`, not `just --list` (different code path) (2026-05-18)
 - `temporal-ts-net` defaults its tsnet state dir to `~/.config/tsnet-<hostname>/`, NOT the volume-mounted `/var/lib/tailscale` — pass `--tailscale-state-dir=/var/lib/tailscale` explicitly or the tailnet node name drifts (`-1`, `-2`, ...) on every container recreate (2026-05-18)
 - Compose `include:` puts every included service into the same project namespace — service-name collisions across files break the merge; rename your master substrate services with a project-specific prefix (e.g. `pytexas-temporal`) rather than the included services (2026-05-18)
 - Just's `[no-exit-message]` recipe attribute suppresses the "Recipe failed with exit code N" tracebacks on non-zero exits — use it on user-facing recipes that may legitimately exit 1 (unknown arg, missing precondition) (2026-05-18)
-- DigitalOcean `digitalocean_spaces_bucket` creation hits the S3 API (not the platform API) and requires `SPACES_ACCESS_KEY_ID` + `SPACES_SECRET_ACCESS_KEY` in addition to `DIGITALOCEAN_TOKEN` — generate the Spaces key manually at `https://cloud.digitalocean.com/spaces/access_keys` before the first apply (2026-05-18)
+- DigitalOcean `digitalocean_spaces_bucket` creation hits the S3 API (not the platform API) and requires `SPACES_ACCESS_KEY_ID` + `SPACES_SECRET_ACCESS_KEY` in addition to `TF_VAR_do_token` — generate the Spaces key manually at `https://cloud.digitalocean.com/spaces/access_keys` before the first apply (2026-05-18)
 - `digitalocean_spaces_key` rejects the `fullaccess` permission when paired with a bucket-scoped grant — bucket-scoped grants can only be `read` or `readwrite`; `fullaccess` is account-wide (no bucket field) (2026-05-18)
 - Multi-step bash commands that include `git commit` / `git push` / `terraform apply` need `set -euo pipefail` or `&&`-chaining — newline-separated steps don't propagate exit codes, so a failed pre-flight check ships the destructive action anyway (2026-05-18)
 - `community.docker.docker_compose_v2`'s `services:` parameter doesn't actually limit which services get created — it only scopes operations on them. Use direct shell `docker compose up -d <svc>` when you need true service filtering (2026-05-18)
-- Tailscale's `.list` file (downloaded from pkgs.tailscale.com) hardcodes the keyring path to `/usr/share/keyrings/tailscale-archive-keyring.gpg` — putting the key under `/etc/apt/keyrings/` (the modern best-practice path) breaks apt's signature check (2026-05-18)
-- `Edit` tool with `old_string="KEY="` on a config file where the line is `KEY=existingvalue` matches the prefix and CONCATENATES `newvalue + existingvalue` instead of replacing — always include the full line value in `old_string` (2026-05-18)
-- Terraform's `-backend=false` flag only affects `init`; every subsequent `plan`/`apply` re-reads `backend.tf` and demands the backend be initialized — to gate the backend during the chicken-and-egg bootstrap, rename the file to `backend.tf.disabled` (terraform only auto-loads `*.tf`) (2026-05-18)
 
 ## Infrastructure (DigitalOcean / Terraform)
 
@@ -24,6 +23,7 @@
 - The terraform `do_token` variable env-var convention is `TF_VAR_do_token` — NOT the DigitalOcean provider's native `DIGITALOCEAN_TOKEN` env var. They don't bridge (2026-05-18)
 - Self-referential state bucket pattern works fine for routine apply/plan; `terraform destroy` is the only awkward case (it tries to delete its own backend mid-destroy). Workaround: rename `backend.tf` → `backend.tf.disabled`, migrate state back to local, then destroy (2026-05-18)
 - DO Spaces backend block in terraform requires `skip_credentials_validation`, `skip_metadata_api_check`, `skip_region_validation`, `skip_requesting_account_id`, `skip_s3_checksum`, `use_path_style` — without all of them, the S3 backend tries AWS-specific probes that fail (2026-05-18)
+- Terraform's `-backend=false` flag only affects `init`; every subsequent `plan`/`apply` re-reads `backend.tf` and demands the backend be initialized — gate the backend during the chicken-and-egg bootstrap by naming the file `backend.tf.disabled` (terraform only auto-loads `*.tf`) (2026-05-18)
 
 ## Docker / Compose
 
@@ -57,8 +57,15 @@
 - Reusable + pre-approved + tagged Tailscale auth keys are the right pattern for servers — one key handles host registration AND container-side tsnet registration without manual approval queues (2026-05-18)
 - DO cloud firewall: open UDP 41641 for Tailscale direct peer connections, otherwise traffic relays through DERP (works but slower) (2026-05-18)
 
+## Security
+
+- gitleaks and pre-commit's `check-yaml` both need the sops-encrypted files allowlisted/excluded — they look like valid YAML/dotenv but aren't plain-parseable, and their `ENC[...]` / age blocks are not leaks (2026-05-20)
+- A sops-encrypted repo is public-safe by design; the only real exposure is an accidental plaintext commit. A gitleaks pre-commit hook + GitHub push protection cover that vector. Rotate the underlying secrets (not just the encryption key) when revoking access, since old ciphertext lives forever in git history (2026-05-20)
+
 ## Workflow
 
+- After a mid-session restructure (renamed recipes, moved paths), grep every doc for the old names before calling it done — doc drift stays invisible until someone follows the README and hits a dead recipe/path (2026-05-20)
+- `Edit` with `old_string="KEY="` on a line that's already `KEY=existingvalue` matches the prefix and CONCATENATES `newvalue + existingvalue` instead of replacing — always include the full line value in `old_string` (2026-05-18)
 - Don't guess vendor console URLs — DO Spaces keys live at `/spaces/access_keys`, NOT `/account/api/tokens`; verify with WebFetch or ask before documenting (2026-05-18)
 - When `Edit` reports "file modified since read", do NOT continue downstream destructive actions — re-Read first. Failing edits in `&&`-chained bash propagate fine; failing edits in newline-separated bash do NOT (2026-05-18)
 - Apply the "earn its keep" test before adding moving parts at small scale — scoped Spaces keys, capture-creds recipes, diff-based idempotent retention all over-engineer at one-droplet/one-operator scale (2026-05-18)

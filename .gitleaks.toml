@@ -1,0 +1,22 @@
+# ABOUTME: gitleaks config for the PyTexas infra repo. Extends the default ruleset and
+# allowlists the sops-encrypted files (their ENC[...] / age blocks are not leaks) plus
+# the gitignored staging/example files.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "sops-encrypted files and examples are not leaks"
+paths = [
+    '''secrets/.*\.sops\.env$''',
+    '''secrets/.*\.sops\.yaml$''',
+    '''\.env\.example$''',
+    '''.*\.tfvars\.example$''',
+]
+# Encrypted values carry these markers; never flag them.
+regexTarget = "line"
+regexes = [
+    '''ENC\[AES256_GCM''',
+    '''-----BEGIN AGE ENCRYPTED FILE-----''',
+    '''age1[a-z0-9]{58}''',
+]
