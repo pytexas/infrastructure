@@ -16,6 +16,17 @@
     state: absent
   when: not services_root_git.stat.exists
 
+# Created as root (play-level become) and owned by the deploy user so the clone
+# below -- which runs as the deploy user -- can write into it. On a fresh droplet
+# /srv is root-owned, so the deploy user can't create /srv/pytexas itself.
+- name: Ensure services_root exists and is owned by the deploy user
+  ansible.builtin.file:
+    path: "{{ services_root }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0755"
+
 - name: Clone or update the infrastructure repo at services_root
   ansible.builtin.git:
     repo: "{{ infrastructure_repo_url }}"

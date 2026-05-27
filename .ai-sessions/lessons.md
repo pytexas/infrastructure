@@ -2,16 +2,16 @@
 
 ## Recent
 <!-- 10 most recent lessons, newest first -->
+- `prevent_destroy = true` on a self-referential state bucket fails at PLAN time before any resource is touched. `force_destroy = false` alone is a poor substitute — it only fires after `terraform destroy` has already torn down everything else and then chokes on the non-empty bucket, leaving a half-wrecked state (2026-05-26)
+- `terraform apply -replace=<resource>` is the idiom for "give me this one resource fresh, leave everything else alone" — the dependency graph auto-updates dependents (DNS records reading the new IP, firewall ID lists, project URN lists). Use this instead of full destroy + apply for "rebuild the droplet" workflows (2026-05-26)
+- When wrapping `terraform apply` with `just` recipes (apply, rebuild, etc.), mirror the `-auto-approve` flag across all variants — inconsistency surfaces as a silent hang at the "Enter a value: yes" prompt, indistinguishable from a true hang to the operator (2026-05-26)
+- Ansible runs from the controller's working tree, not from any cloned-onto-target copy of the role code. Local uncommitted changes to `ansible/roles/...` "work" for the local operator but are invisible to anyone else who clones the repo — flag this whenever pushing a role fix you haven't committed (2026-05-26)
 - After a mid-session restructure (renamed recipes, moved paths), grep every doc for the old names before calling it done — doc drift stays invisible until someone follows the README and hits a recipe/path that no longer exists (2026-05-20)
 - gitleaks and pre-commit's `check-yaml` both need the sops-encrypted files allowlisted/excluded — they look like valid YAML/dotenv but aren't plain-parseable, and their `ENC[...]` / age blocks are not leaks (2026-05-20)
 - Just's `set working-directory := ".."` cascades into recursive `just` invocations — a `default: @just --list` recipe in a nested justfile will silently load the parent's justfile instead of its own. Use `repo_root := justfile_directory() / ".."` + explicit `cd` per recipe instead. Test with bare `just`, not `just --list` (different code path) (2026-05-18)
 - `temporal-ts-net` defaults its tsnet state dir to `~/.config/tsnet-<hostname>/`, NOT the volume-mounted `/var/lib/tailscale` — pass `--tailscale-state-dir=/var/lib/tailscale` explicitly or the tailnet node name drifts (`-1`, `-2`, ...) on every container recreate (2026-05-18)
 - Compose `include:` puts every included service into the same project namespace — service-name collisions across files break the merge; rename your master substrate services with a project-specific prefix (e.g. `pytexas-temporal`) rather than the included services (2026-05-18)
 - Just's `[no-exit-message]` recipe attribute suppresses the "Recipe failed with exit code N" tracebacks on non-zero exits — use it on user-facing recipes that may legitimately exit 1 (unknown arg, missing precondition) (2026-05-18)
-- DigitalOcean `digitalocean_spaces_bucket` creation hits the S3 API (not the platform API) and requires `SPACES_ACCESS_KEY_ID` + `SPACES_SECRET_ACCESS_KEY` in addition to `TF_VAR_do_token` — generate the Spaces key manually at `https://cloud.digitalocean.com/spaces/access_keys` before the first apply (2026-05-18)
-- `digitalocean_spaces_key` rejects the `fullaccess` permission when paired with a bucket-scoped grant — bucket-scoped grants can only be `read` or `readwrite`; `fullaccess` is account-wide (no bucket field) (2026-05-18)
-- Multi-step bash commands that include `git commit` / `git push` / `terraform apply` need `set -euo pipefail` or `&&`-chaining — newline-separated steps don't propagate exit codes, so a failed pre-flight check ships the destructive action anyway (2026-05-18)
-- `community.docker.docker_compose_v2`'s `services:` parameter doesn't actually limit which services get created — it only scopes operations on them. Use direct shell `docker compose up -d <svc>` when you need true service filtering (2026-05-18)
 
 ## Infrastructure (DigitalOcean / Terraform)
 
@@ -24,6 +24,8 @@
 - Self-referential state bucket pattern works fine for routine apply/plan; `terraform destroy` is the only awkward case (it tries to delete its own backend mid-destroy). Workaround: rename `backend.tf` → `backend.tf.disabled`, migrate state back to local, then destroy (2026-05-18)
 - DO Spaces backend block in terraform requires `skip_credentials_validation`, `skip_metadata_api_check`, `skip_region_validation`, `skip_requesting_account_id`, `skip_s3_checksum`, `use_path_style` — without all of them, the S3 backend tries AWS-specific probes that fail (2026-05-18)
 - Terraform's `-backend=false` flag only affects `init`; every subsequent `plan`/`apply` re-reads `backend.tf` and demands the backend be initialized — gate the backend during the chicken-and-egg bootstrap by naming the file `backend.tf.disabled` (terraform only auto-loads `*.tf`) (2026-05-18)
+- `prevent_destroy = true` on a self-referential state bucket fails at PLAN time before any resource is touched. Strictly better than `force_destroy = false` alone, which only fires after destroy has torn down everything else and then chokes on the non-empty bucket. Keep both -- defense in depth (2026-05-26)
+- `terraform apply -replace=<resource>` replaces one resource and lets the dependency graph auto-update dependents (DNS records, firewall droplet_ids, project resource URNs). Use this for "rebuild the droplet, keep DNS + bucket + state" instead of full destroy + apply (2026-05-26)
 
 ## Docker / Compose
 
@@ -35,6 +37,7 @@
 
 ## Ansible
 
+- When refactoring a role, trace the FRESH-start path, not just the already-running one — a step that's redundant on an existing system (e.g. `/srv/pytexas` already created by a prior run) can be load-bearing on a clean bootstrap. Removing the "ensure services_root exists, owned by deploy user" task broke fresh-droplet clones (deploy user can't mkdir in root-owned `/srv`) while the running droplet kept working (2026-05-20)
 - `community.docker.docker_compose_v2`'s `services:` doesn't filter creation; shell out to `docker compose up -d <svc>` for true control (2026-05-18)
 - Fresh DO droplets run cloud-init/unattended-upgrades on first boot — `cloud-init status --wait` at the top of the bootstrap role avoids dpkg lock races on the first apply (2026-05-18)
 - Set `lock_timeout: 120` on `ansible.builtin.apt` tasks to tolerate the brief lock contention even after the cloud-init wait completes (2026-05-18)
@@ -49,6 +52,7 @@
 - Just's `[no-exit-message]` suppresses "Recipe failed" tracebacks; combine with explicit `echo` + `exit N` for clean UX on user errors (2026-05-18)
 - Just's `set working-directory := ".."` cascades into recursive `just` invocations and silently misdirects them at the parent's justfile — use `justfile_directory() / ".."` + explicit `cd` per recipe instead (2026-05-18)
 - Sops + age recipient-based encryption: any operator's age private key can decrypt; adding a new operator is `sops updatekeys` after their public key is added to `.sops.yaml`. No password to share, no rotation pain (2026-05-18)
+- When wrapping `terraform apply` with `just` recipes (apply, rebuild, etc.), mirror the `-auto-approve` flag across every variant — inconsistency surfaces as a silent hang at the "Enter a value:" prompt, indistinguishable from a real hang to the operator (2026-05-26)
 
 ## Tailscale / Networking
 
@@ -64,6 +68,7 @@
 
 ## Workflow
 
+- Ansible runs from the controller's working tree, not from any cloned-onto-target copy of the role code. Local uncommitted changes to `ansible/roles/...` "work" for the local operator but are invisible to anyone else who clones the repo. Flag explicitly whenever pushing a role fix you haven't committed — solo testing won't surface the gap (2026-05-26)
 - After a mid-session restructure (renamed recipes, moved paths), grep every doc for the old names before calling it done — doc drift stays invisible until someone follows the README and hits a dead recipe/path (2026-05-20)
 - `Edit` with `old_string="KEY="` on a line that's already `KEY=existingvalue` matches the prefix and CONCATENATES `newvalue + existingvalue` instead of replacing — always include the full line value in `old_string` (2026-05-18)
 - Don't guess vendor console URLs — DO Spaces keys live at `/spaces/access_keys`, NOT `/account/api/tokens`; verify with WebFetch or ask before documenting (2026-05-18)

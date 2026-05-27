@@ -105,24 +105,45 @@ just destroy    # see caveat below
 
 Outbound is wide open.
 
-## Destroy ordering caveat
+## Rebuilding vs. destroying
 
-Because the bucket holding the state is itself a resource in that state, a naive
-`terraform destroy` tries to delete the bucket and then fails to write the final state
-update. To fully tear down, migrate state back to local first:
+### Rebuild the droplet (common) — keeps the bucket, state, and DNS
+
+To start the droplet over without disturbing the state bucket:
 
 ```bash
-# 1. Disable the backend and pull state back to local so terraform isn't deleting
-#    its own backend mid-destroy.
-mv terraform/backend.tf terraform/backend.tf.disabled
-cd terraform && terraform init -migrate-state   # copies remote state back to local
+cd bootstrap
+just rebuild     # terraform apply -replace=digitalocean_droplet.main
+just apply       # re-run ansible against the fresh droplet
+```
 
-# 2. Now destroy with local state (export TF_VAR_do_token + SPACES_* first, since the
+`-replace` destroys and recreates only the droplet; the firewall, project, DNS records,
+and Spaces bucket are untouched (the DNS records auto-update to the new IP). This is the
+right tool for "give me a clean droplet" — no state migration, no bootstrap dance.
+
+### Full teardown (rare) — also removes the bucket
+
+The bucket has `prevent_destroy = true`, so a plain `terraform destroy` **fails at plan
+time** rather than taking your state bucket (and all state history) with it. That's
+deliberate — it stops a routine teardown from nuking the thing that holds your state.
+
+To genuinely retire everything, you must consciously lower that guard AND migrate state
+off the bucket first (terraform can't delete the bucket holding its own state mid-destroy):
+
+```bash
+# 1. Remove the prevent_destroy guard in spaces.tf (comment it out).
+
+# 2. Disable the backend and pull state back to local.
+mv terraform/backend.tf terraform/backend.tf.disabled
+cd terraform && terraform init -migrate-state
+
+# 3. Destroy with local state (export TF_VAR_do_token + SPACES_* first, since the
 #    sops-wrapped recipe relies on the bucket that's about to vanish).
 terraform destroy
 ```
 
-You'll almost certainly never need this for PyTexas. Documented for completeness.
+Then re-run the full bootstrap from the top. You'll rarely need this — only when
+validating the bootstrap procedure from absolute scratch.
 
 ## What this does NOT manage
 

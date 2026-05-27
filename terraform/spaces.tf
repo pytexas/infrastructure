@@ -16,6 +16,14 @@ resource "digitalocean_spaces_bucket" "tfstate" {
     enabled = true
   }
 
-  # Refuse to delete unless empty. Prevents accidental loss of state history.
+  # Refuse to delete unless empty (it never is -- it holds state).
   force_destroy = false
+
+  lifecycle {
+    # Make `terraform destroy` fail at PLAN time if it would remove this bucket,
+    # so a routine teardown of the droplet/services can't take the state bucket
+    # (and all state history) with it. To genuinely retire the bucket, comment
+    # this out, migrate state back to local, then destroy -- see terraform/README.md.
+    prevent_destroy = true
+  }
 }

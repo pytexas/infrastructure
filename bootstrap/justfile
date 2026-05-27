@@ -18,13 +18,21 @@ apply: _tf-apply _ansible
 plan:
     @just _tf plan
 
-# Tear everything down. Will prompt for confirmation.
+# Tear everything down. The state bucket has prevent_destroy=true, so this FAILS at
+# plan time by design -- to actually retire the bucket, follow the full-teardown
+# steps in terraform/README.md. To just rebuild the droplet, use `just rebuild`.
 destroy:
     @just _tf destroy
 
 # Print the droplet's public IPv4 from terraform state.
 ip:
     @just _tf 'output -raw droplet_ipv4'
+
+# Replace the droplet from scratch, keeping the Spaces bucket / state / DNS.
+# Use this to "start the droplet over" without the full destroy+rebootstrap dance.
+# Follow with `just apply` to re-run ansible against the new droplet.
+rebuild:
+    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env 'terraform apply -auto-approve -replace=digitalocean_droplet.main'
 
 # Create or edit a sops-encrypted file.
 # Example: just sops secrets/pytexas.sops.env
