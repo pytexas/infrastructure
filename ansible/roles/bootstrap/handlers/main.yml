@@ -1,0 +1,6 @@
+# ABOUTME: Handlers triggered by the bootstrap role.
+
+- name: restart sshd
+  ansible.builtin.service:
+    name: ssh
+    state: restarted

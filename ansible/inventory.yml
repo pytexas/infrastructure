@@ -1,0 +1,14 @@
+# ABOUTME: Static inventory for the PyTexas droplet(s).
+# Populate ansible_host from `terraform output droplet_ipv4` after applying.
+# For multi-host setups, copy this file to inventory.local.yml (gitignored) and edit there.
+
+all:
+  vars:
+    ansible_user: root
+    ansible_python_interpreter: /usr/bin/python3
+
+  children:
+    pytexas:
+      hosts:
+        pytexas-1:
+          ansible_host: REPLACE_WITH_DROPLET_IPV4

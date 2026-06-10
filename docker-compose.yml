@@ -1,0 +1,63 @@
+# ABOUTME: Master compose -- one unified project containing the substrate
+# (temporal + caddy) and every service via `include:`. Lives at the root of the
+# infrastructure repo and is what `docker compose` discovers when run from here.
+#
+# Day-2 service control:
+#   just up <target>          (target: all | bot | middleware | temporal)
+#   just down <target>
+#   just restart <target>
+#   just logs <target>
+# Or call docker compose directly:
+#   docker compose up -d
+#   docker compose stop pytexbot
+#   docker compose logs -f web
+
+include:
+  - ./pretix-discord-middleware/docker-compose.yml
+  - ./pytexas-discord-bot/docker-compose.yaml
+
+services:
+  # Master substrate -- prefixed `pytexas-` to avoid colliding with services
+  # the per-repo composes may define (e.g. the middleware's profile-gated
+  # standalone `caddy` and `temporal`). The `aliases` block lets included
+  # services keep reaching us by their familiar short names ("temporal:7233").
+  pytexas-temporal:
+    build:
+      context: .
+      dockerfile: temporal.Dockerfile
+    env_file: .env
+    command:
+      - --tailscale-hostname=${TS_HOSTNAME:-pytexas-temporal}
+      # Persist tsnet identity in the temporal_tsstate volume so the tailnet
+      # node name stays stable across container restarts. Without this, tsnet
+      # writes state to ~/.config/tsnet-<hostname>/ (not in any volume) and
+      # each restart registers as a fresh node, getting a "-N" suffix.
+      - --tailscale-state-dir=/var/lib/tailscale
+      - --ip=0.0.0.0
+      - --db-filename=/data/temporal.db
+    volumes:
+      - temporal_data:/data
+      - temporal_tsstate:/var/lib/tailscale
+    networks:
+      default:
+        aliases:
+          - temporal
+    restart: unless-stopped
+
+  pytexas-caddy:
+    image: caddy:2
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  temporal_data:
+  temporal_tsstate:
+  caddy_data:
+  caddy_config:

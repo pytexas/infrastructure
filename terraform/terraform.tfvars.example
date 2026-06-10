@@ -1,0 +1,11 @@
+# All values have sane defaults -- this file is only needed if you want to override.
+# do_token comes from the TF_VAR_do_token env var, not from this file.
+
+# region              = "sfo3"
+# droplet_size        = "s-2vcpu-2gb"
+# droplet_name        = "pytexas-1"
+# tfstate_bucket_name = "pytexas-tfstate"
+# dns_domain          = "pytx.org"
+# infra_subdomain     = "infra"
+# enable_backups      = true
+# allowed_ssh_cidrs   = ["198.51.100.42/32"]

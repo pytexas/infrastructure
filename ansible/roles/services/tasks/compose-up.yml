@@ -1,0 +1,48 @@
+# ABOUTME: Bring the unified compose stack up. One project, all services.
+# The master substrate (pytexas-temporal, pytexas-caddy) plus every service
+# pulled in via `include:` come up together.
+
+# One-shot migration: tear down the previous per-service compose projects and the
+# old master substrate containers. The new unified project reuses the `pytexas`
+# project name, so the old master containers map onto the new profile-gated
+# `temporal` / `caddy` services and aren't classified as orphans -- they need
+# explicit removal. No-op once they're gone.
+- name: Tear down legacy per-service compose projects
+  ansible.builtin.command:
+    cmd: docker compose -p {{ item }} down --remove-orphans
+  loop:
+    - pretix-discord-middleware
+    - pytexas-discord-bot
+  register: legacy_down
+  changed_when: "'Removed' in (legacy_down.stderr | default(''))"
+  failed_when: false
+
+- name: Remove legacy master substrate containers (pre-unified-project names)
+  community.docker.docker_container:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - pytexas-temporal-1
+    - pytexas-caddy-1
+
+- name: Bring up the unified stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ services_root }}"
+    state: present
+    remove_orphans: true
+
+# Set Temporal namespace retention. Same-value updates are a no-op on Temporal's
+# side, so we always run it. Retries cover the case where Temporal is still
+# starting up the first time around.
+- name: Set Temporal namespace retention to {{ temporal_namespace_retention }}
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T pytexas-temporal
+      temporal operator namespace update
+      --namespace default --retention {{ temporal_namespace_retention }}
+    chdir: "{{ services_root }}"
+  changed_when: false
+  retries: 10
+  delay: 3
+  register: ts_retention
+  until: ts_retention.rc == 0

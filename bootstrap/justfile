@@ -1,0 +1,78 @@
+# ABOUTME: Laptop-side bootstrap and deploy recipes for the PyTexas infra repo.
+# Run from this directory (`cd bootstrap && just apply`) or from the repo root
+# with `--working-directory` (`just -d bootstrap apply`). Recipes resolve paths
+# from the repo root via {{repo_root}}.
+#
+# For day-2 service control (start/stop/logs/pull), see ../justfile -- meant to
+# run on the droplet, not here.
+
+repo_root := justfile_directory() / ".."
+
+default:
+    @just --list
+
+# Full deploy: terraform apply + ansible playbook. Idempotent.
+apply: _tf-apply _ansible
+
+# Preview terraform changes.
+plan:
+    @just _tf plan
+
+# Tear everything down. The state bucket has prevent_destroy=true, so this FAILS at
+# plan time by design -- to actually retire the bucket, follow the full-teardown
+# steps in terraform/README.md. To just rebuild the droplet, use `just rebuild`.
+destroy:
+    @just _tf destroy
+
+# Print the droplet's public IPv4 from terraform state.
+ip:
+    @just _tf 'output -raw droplet_ipv4'
+
+# Replace the droplet from scratch, keeping the Spaces bucket / state / DNS.
+# Use this to "start the droplet over" without the full destroy+rebootstrap dance.
+# Follow with `just apply` to re-run ansible against the new droplet.
+rebuild:
+    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env 'terraform apply -auto-approve -replace=digitalocean_droplet.main'
+
+# Create or edit a sops-encrypted file.
+# Example: just sops secrets/pytexas.sops.env
+sops file:
+    cd "{{repo_root}}" && sops {{file}}
+
+# Re-encrypt every secrets file with the current recipient list in .sops.yaml.
+# Run after adding or removing an age key recipient.
+rekey:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{repo_root}}"
+    shopt -s nullglob
+    files=(secrets/*.sops.env secrets/*.sops.yaml)
+    if [ ${#files[@]} -eq 0 ]; then echo "No secrets files yet."; exit 0; fi
+    for f in "${files[@]}"; do
+        echo "rekey: $f"
+        sops updatekeys -y "$f"
+    done
+
+# Install ansible collections required by the playbook. Run once after `git clone`.
+setup:
+    cd "{{repo_root}}/ansible" && ansible-galaxy collection install -r requirements.yml
+
+# Format + validate terraform.
+lint:
+    cd "{{repo_root}}/terraform" && terraform fmt -recursive && terraform validate
+
+# === Internal helpers ======================================================
+
+_tf cmd:
+    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env "terraform {{cmd}}"
+
+_tf-apply:
+    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env 'terraform apply -auto-approve'
+
+_ansible:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{repo_root}}"
+    ip=$(cd terraform && sops exec-env ../secrets/terraform.sops.env 'terraform output -raw droplet_ipv4')
+    sed "s/REPLACE_WITH_DROPLET_IPV4/$ip/" ansible/inventory.yml > ansible/inventory.local.yml
+    cd ansible && ansible-playbook -i inventory.local.yml playbook.yml

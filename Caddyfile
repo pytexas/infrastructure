@@ -1,0 +1,7 @@
+# ABOUTME: Master Caddy config -- fans out to app services by hostname.
+# Hostnames come from env vars (set in compose/.env) so we can swap domains per environment.
+# Each app web container is reachable by its network alias on the `pytexas` external network.
+
+{$MIDDLEWARE_DOMAIN} {
+    reverse_proxy web:8000
+}

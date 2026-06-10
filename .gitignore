@@ -1,4 +1,6 @@
 # Byte-compiled / optimized / DLL files
+.env
+
 __pycache__/
 *.py[codz]
 *$py.class
@@ -216,3 +218,99 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Terraform
+**/.terraform/*
+.terraform/
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+# Plan output files (binary, may contain secrets)
+*.tfplan
+*.tfplan.*
+tfplan
+plan.out
+plan.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Ansible
+*.retry
+ansible/vault_password
+ansible/.vault_pass
+ansible/.vault_pass.txt
+ansible/*.vault
+ansible/inventory.local.yml
+ansible/inventory/*.local.yml
+# Fact cache and local artifacts
+ansible/fact_cache/
+ansible/.ansible/
+.ansible/
+# Galaxy / collection install outputs
+ansible/collections/ansible_collections/
+ansible/roles/external/
+
+# BPE commit message workflow
+commit-msg.md
+
+# Secrets: ONLY .sops.env and .sops.yaml files are committable (encrypted). Anything
+# else resembling plaintext config or key material inside secrets/ is paranoia-ignored.
+secrets/*.env
+!secrets/*.sops.env
+secrets/*.yaml
+secrets/*.yml
+!secrets/*.sops.yaml
+secrets/*.key
+secrets/*.txt
+secrets/*.json
+!secrets/*.sops.json
+
+# Unencrypted secret / credential material (repo-wide)
+# Env files (allow only .example variants)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.env.local
+# Private keys / certs / keystores
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.ppk
+# Common cloud/CLI credential files
+.netrc
+credentials
+credentials.json
+credentials.yaml
+credentials.yml
+service-account*.json
+gcp-key*.json
+aws-credentials
+# SOPS / age keys must never be committed
+age.key
+*.agekey
+key.txt
+keys.txt
+
+# Service-repo sub-clones (only present when the infra repo is cloned on the
+# droplet at /srv/pytexas; ansible clones these inside on first apply).
+/pretix-discord-middleware/
+/pytexas-discord-bot/
