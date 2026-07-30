@@ -43,8 +43,8 @@ services_root: "/srv/pytexas"
 # substrate + every service runs as a single unified compose project, so
 # `docker compose up/down` from /srv/pytexas affects everything.
 services_repos:
-  - name: pretix-discord-middleware
-    repo: https://github.com/pytexas/pretix-discord-middleware.git
+  - name: dispatch
+    repo: https://github.com/pytexas/dispatch.git
     ref: main
     compose_file: docker-compose.yml
   - name: pytexas-discord-bot
@@ -60,7 +60,7 @@ services_repos:
 secrets_files:
   - src: pytexas.sops.env
     dest: ""
-  - src: pretix-discord-middleware.sops.env
-    dest: pretix-discord-middleware
+  - src: dispatch.sops.env
+    dest: dispatch
   - src: pytexas-discord-bot.sops.env
     dest: pytexas-discord-bot

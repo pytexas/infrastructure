@@ -71,7 +71,7 @@ _dispatch verb target:
     if [ "{{verb}}" = "pull" ]; then
         case "{{target}}" in
             all)
-                (cd "$services_root/pretix-discord-middleware" && git pull --ff-only)
+                (cd "$services_root/dispatch" && git pull --ff-only)
                 (cd "$services_root/pytexas-discord-bot"        && git pull --ff-only)
                 (cd "$services_root"                            && git pull --ff-only)
                 (cd "$services_root" && docker compose up -d --build)
@@ -81,7 +81,7 @@ _dispatch verb target:
                 (cd "$services_root" && docker compose up -d --build pytexbot)
                 ;;
             middleware)
-                (cd "$services_root/pretix-discord-middleware" && git pull --ff-only)
+                (cd "$services_root/dispatch" && git pull --ff-only)
                 (cd "$services_root" && docker compose up -d --build worker web)
                 ;;
             infra)

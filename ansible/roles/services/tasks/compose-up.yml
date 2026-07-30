@@ -11,7 +11,7 @@
   ansible.builtin.command:
     cmd: docker compose -p {{ item }} down --remove-orphans
   loop:
-    - pretix-discord-middleware
+    - dispatch
     - pytexas-discord-bot
   register: legacy_down
   changed_when: "'Removed' in (legacy_down.stderr | default(''))"
