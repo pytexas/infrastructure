@@ -312,5 +312,5 @@ keys.txt
 
 # Service-repo sub-clones (only present when the infra repo is cloned on the
 # droplet at /srv/pytexas; ansible clones these inside on first apply).
-/pretix-discord-middleware/
+/dispatch/
 /pytexas-discord-bot/

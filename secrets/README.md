@@ -131,7 +131,7 @@ and are loaded by ansible itself on the controller -- they never cross to the dr
 | `terraform.sops.env`                       | dotenv     | terraform (via `sops exec-env` in justfile)  | -- never leaves your laptop --                                 |
 | `ansible.sops.yaml`                        | YAML vars  | ansible (controller-side, `load_vars`)       | -- never leaves your laptop --                                 |
 | `pytexas.sops.env`                         | dotenv     | Master compose (Temporal + Caddy)            | `/srv/pytexas/.env`                                            |
-| `pretix-discord-middleware.sops.env`       | dotenv     | middleware web + worker containers           | `/srv/pytexas/pretix-discord-middleware/.env`                  |
+| `dispatch.sops.env`                        | dotenv     | middleware web + worker containers           | `/srv/pytexas/dispatch/.env`                                   |
 | `pytexas-discord-bot.sops.env`             | dotenv     | discord bot container                        | `/srv/pytexas/pytexas-discord-bot/.env`                        |
 
 ## Editing
@@ -210,14 +210,14 @@ TS_HOSTNAME=pytexas-temporal
 # droplet host and the Temporal container).
 TS_AUTHKEY=tskey-auth-REPLACE_ME
 
-# Public hostname for the pretix-discord-middleware web service (used by master Caddy).
+# Public hostname for the dispatch web service (used by master Caddy).
 MIDDLEWARE_DOMAIN=middleware.pytexas.org
 ```
 
-### `pretix-discord-middleware.sops.env`
+### `dispatch.sops.env`
 
 Service-specific config -- Discord webhook/bot tokens, Pretix API key, etc. See
-<https://github.com/pytexas/pretix-discord-middleware> for the authoritative list.
+<https://github.com/pytexas/dispatch> for the authoritative list.
 
 ### `pytexas-discord-bot.sops.env`
 

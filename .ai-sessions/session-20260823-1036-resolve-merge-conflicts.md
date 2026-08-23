@@ -13,12 +13,14 @@
 - Resolved all four by taking our side (`git checkout --ours`), since the rename is the PR's whole purpose. Confirmed no conflict markers remained.
 - Caught that the merge re-added `secrets/pretix-discord-middleware.sops.env` under the old name (main added it; branch had renamed it). Verified it was byte-identical to `secrets/dispatch.sops.env` and `git rm`'d the old-named copy.
 - Flagged pre-existing old-name references in `.env.example`, `.gitignore`, `CLAUDE.md`, and `README.md` that the original rename commit (`1f6df05`) missed. These are on branch HEAD, not part of the merge, so left untouched pending user decision.
+- On user go-ahead, finished the rename across those files plus `secrets/README.md` (which a follow-up grep surfaced): `/dispatch/` gitignore path, doc prose, README repo link (`github.com/pytexas/dispatch`), secrets-file names, and the secrets table row (re-padded to keep column alignment). Left the functional `MIDDLEWARE_DOMAIN` env var name and the `Pretix`/`PRETIX_API_TOKEN` product references intact, since those aren't the old service name.
 
 ## Prompt Inventory
 
 | Prompt/Command | Action Taken | Outcome |
 |---|---|---|
-| "There's merge conflicts on the PR. Resolve them." | Merged main into rename-dispatch, resolved 4 add/add rename conflicts by taking ours, dropped duplicate old-named secrets file | Conflicts resolved; merge commit pending session summary + push |
+| "There's merge conflicts on the PR. Resolve them." | Merged main into rename-dispatch, resolved 4 add/add rename conflicts by taking ours, dropped duplicate old-named secrets file | Conflicts resolved; signed merge commit pushed; PR back to CLEAN/MERGEABLE |
+| "Yes, finish the rename across those files" | Replaced the remaining `pretix-discord-middleware` references in `.env.example`, `.gitignore`, `CLAUDE.md`, `README.md`, `secrets/README.md` with `dispatch` | Rename complete; repo grep clean outside `.ai-sessions/` history |
 
 ## Efficiency Insights
 

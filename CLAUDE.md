@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PyTexas Foundation infrastructure-as-code. Stands up one DigitalOcean droplet in `sfo3`,
 hardened by ansible, hosting a unified docker compose project that includes the
-`pretix-discord-middleware` and `pytexas-discord-bot` service repos as sub-clones. Terraform
+`dispatch` and `pytexas-discord-bot` service repos as sub-clones. Terraform
 manages the droplet, firewall, DO project, DNS records on `pytx.org`, and a Spaces bucket
 that holds its own state via the self-referential bootstrap pattern.
 
@@ -97,7 +97,7 @@ hostname drifts (`pytexas-temporal-1`, `pytexas-temporal-2`, ...). The flag is s
 `docker-compose.yml`; keep it there.
 
 ### Service repos are sub-clones inside `/srv/pytexas/`
-Ansible clones `pretix-discord-middleware` and `pytexas-discord-bot` into the infra repo's
+Ansible clones `dispatch` and `pytexas-discord-bot` into the infra repo's
 checkout on the droplet. Both are gitignored at the repo root. The master compose's
 `include:` paths reference them relatively.
 
