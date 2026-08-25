@@ -1,98 +1,82 @@
 # Terraform
 
-Manages the PyTexas DigitalOcean footprint as a single self-referential config:
+Manages the PyTexas DigitalOcean footprint:
 **one droplet**, **one cloud firewall**, **one DO project** for grouping, **DNS records**
-for `infra.pytx.org`, and **one Spaces bucket** holding this config's own terraform state.
+for `infra.pytx.org`, and **one public Spaces bucket** for web assets.
 
-Everything lives in one state file. The bucket-that-holds-the-state is itself a resource
-in that state file (the classic Terraform self-reference trick).
+Terraform state is **sops-encrypted and committed to this repo** (`terraform/state.sops.json`).
+There is no remote backend and no self-referential state bucket -- state is just another
+encrypted file, like the secrets.
 
 ## Prereqs
 
 - Terraform >= 1.6
 - A DigitalOcean API token with read/write
-- A Spaces access key (separate from the API token — see below)
+- A Spaces access key (separate from the API token -- see below), used to manage the assets
+  bucket over the S3 API and to upload assets
+- Your age private key at `~/.config/sops/age/keys.txt` (to decrypt state + secrets)
 - Your SSH key uploaded to your DO account (`data.digitalocean_ssh_keys.all` authorizes
   every key in the account on the droplet)
 
-## First-time bootstrap (chicken-and-egg dance)
+## State: sops-encrypted in git
 
-The Spaces bucket can't hold state until it exists, so the very first apply runs with
-**local state** and a follow-up `terraform init` migrates that state into Spaces once
-the bucket is real. To keep terraform from trying to use the backend before the bucket
-exists, the backend config lives in `backend.tf.disabled` (terraform only auto-loads
-files ending in `.tf`). It's renamed into place after the bucket has been created.
+State lives at `terraform/state.sops.json`, encrypted whole-file with age via sops. Every
+terraform command runs through the `_tf` wrapper in `bootstrap/justfile`, which:
+
+1. decrypts `state.sops.json` into terraform's working `terraform.tfstate`,
+2. runs the terraform command (with the DO token + Spaces key decrypted into the env),
+3. re-encrypts `state.sops.json` in place **only if the state actually changed** -- so
+   read-only commands (`plan`, `output`) don't churn git, and a new sops nonce isn't written
+   on every run. Re-encryption also happens when terraform exits non-zero, so a partial
+   apply's state is captured.
+
+**After any apply that changed state, commit `terraform/state.sops.json`.** The wrapper
+prints a reminder to stderr when it re-encrypts.
+
+Because state is local (decrypted only transiently), there is **no state locking**. That's
+fine for a solo or coordinated operator; don't run `apply` from two machines at once, and
+don't apply on two branches in parallel (the encrypted blob won't merge).
 
 ### Two kinds of DigitalOcean credentials
 
-The bootstrap needs both:
+1. **DO API token** -- bearer token for `api.digitalocean.com` (droplets, firewalls,
+   projects, DNS). Terraform reads it from `TF_VAR_do_token`.
+2. **Spaces access key** -- AWS-style key pair for the S3 protocol at
+   `*.digitaloceanspaces.com`. Terraform uses it to create/manage the assets bucket, and
+   asset uploaders use it to write files. Generate at
+   **<https://cloud.digitalocean.com/spaces/access_keys>** -- a *separate page* from API
+   tokens. Set `SPACES_ACCESS_KEY_ID` + `SPACES_SECRET_ACCESS_KEY`.
 
-1. **DO API token** — bearer token for `api.digitalocean.com`. Used for droplets,
-   firewalls, projects, DNS records. Generate at
-   <https://cloud.digitalocean.com/account/api/tokens>, "All permissions" is easiest.
-   Terraform reads it from `TF_VAR_do_token`:
+Both live in `secrets/terraform.sops.env`; the `just` recipes decrypt them into the terraform
+process via `sops exec-env`. You don't export anything yourself.
 
-   ```bash
-   export TF_VAR_do_token=dop_v1_xxxxxxxxxxxx
-   ```
-
-2. **Spaces access key** — AWS-style access-key-id + secret pair for the S3 protocol at
-   `*.digitaloceanspaces.com`. This is what terraform uses to **create** the bucket (the
-   S3 endpoint, not the platform API) AND what the s3 backend uses to read/write state.
-   Generate at **<https://cloud.digitalocean.com/spaces/access_keys>** — a *separate page*
-   from API tokens. Copy both halves immediately (the secret is shown once):
-
-   ```bash
-   export SPACES_ACCESS_KEY_ID=DO00...
-   export SPACES_SECRET_ACCESS_KEY=...
-   ```
-
-The same Spaces key continues to serve as the backend's auth credential after bootstrap
-— there's no separate terraform-managed scoped key. To rotate, generate a new key in the
-DO console, update `secrets/terraform.sops.env`, redeploy.
-
-### The bootstrap sequence
-
-Run from `bootstrap/` unless noted. The full annotated version is in the repo-root
-`README.md`; the short form:
+## Day-1 (fresh clone) and day-2
 
 ```bash
-# 1. Init with local state. backend.tf is named backend.tf.disabled so terraform
-#    ignores it. Run raw terraform for this step (from terraform/):
-cd ../terraform && terraform init && cd ../bootstrap
-
-# 2. First apply -- creates droplet + firewall + project + DNS + Spaces bucket.
-just apply
-
-# 3. Put the three credentials into the encrypted env file (TF_VAR_do_token,
-#    SPACES_ACCESS_KEY_ID, SPACES_SECRET_ACCESS_KEY, plus AWS_ACCESS_KEY_ID and
-#    AWS_SECRET_ACCESS_KEY mirroring the SPACES_ values for the s3 backend).
-just sops secrets/terraform.sops.env
-
-# 4. Enable the backend and migrate local state into the bucket.
-mv ../terraform/backend.tf.disabled ../terraform/backend.tf
-cd ../terraform && \
-    sops exec-env ../secrets/terraform.sops.env 'terraform init -migrate-state'
-```
-
-After migration, the local `terraform.tfstate` is obsolete (a `*.backup` is left behind —
-safe to delete once you've confirmed the bucket has the real state). Commit
-`terraform/backend.tf` (now enabled) so the next operator clones a repo already wired for
-the remote backend.
-
-## Day-2
-
-Every subsequent terraform command runs through `bootstrap/justfile`, which wraps
-terraform with `sops exec-env` so the DO token + Spaces key are decrypted from
-`secrets/terraform.sops.env` into the child process. You don't export anything yourself:
-
-```bash
+cd terraform && terraform init && cd ..   # one-time: install provider plugins
 cd bootstrap
-just plan       # terraform plan
-just apply      # terraform apply + ansible (full deploy)
-just ip         # droplet public IPv4
-just destroy    # see caveat below
+just apply        # terraform apply + ansible (full deploy). Idempotent.
+just plan         # preview, no apply
+just ip           # droplet public IPv4
+just destroy      # see caveats below
 ```
+
+No init dance, no state migration, no backend file. `just apply` on a fresh clone with no
+`state.sops.json` yet just creates everything and writes the first encrypted state.
+
+## The public assets bucket
+
+`digitalocean_spaces_bucket.assets` (default name `pytexas-assets`) holds public-facing web
+assets -- page images, meetup banners, etc.
+
+- **Public read, no listing:** a `digitalocean_spaces_bucket_policy` grants anonymous
+  `s3:GetObject` on every object, so files load by direct URL. The bucket ACL stays private,
+  so the bucket isn't listable.
+- **Writes require the Spaces key.** Upload with any S3 client pointed at
+  `https://sfo3.digitaloceanspaces.com` using the `SPACES_*` credentials.
+- **Public URL:** `https://<bucket>.<region>.digitaloceanspaces.com/<object-key>` (see the
+  `assets_bucket_endpoint` output).
+- CORS allows `GET`/`HEAD` from any origin so assets embed cross-site.
 
 ## What the firewall opens
 
@@ -107,9 +91,7 @@ Outbound is wide open.
 
 ## Rebuilding vs. destroying
 
-### Rebuild the droplet (common) — keeps the bucket, state, and DNS
-
-To start the droplet over without disturbing the state bucket:
+### Rebuild the droplet (common) -- keeps DNS, the assets bucket, and state
 
 ```bash
 cd bootstrap
@@ -117,38 +99,34 @@ just rebuild     # terraform apply -replace=digitalocean_droplet.main
 just apply       # re-run ansible against the fresh droplet
 ```
 
-`-replace` destroys and recreates only the droplet; the firewall, project, DNS records,
-and Spaces bucket are untouched (the DNS records auto-update to the new IP). This is the
-right tool for "give me a clean droplet" — no state migration, no bootstrap dance.
+`-replace` destroys and recreates only the droplet; the firewall, project, DNS records, and
+assets bucket are untouched (the DNS records auto-update to the new IP).
 
-### Full teardown (rare) — also removes the bucket
+### Full teardown (rare)
 
-The bucket has `prevent_destroy = true`, so a plain `terraform destroy` **fails at plan
-time** rather than taking your state bucket (and all state history) with it. That's
-deliberate — it stops a routine teardown from nuking the thing that holds your state.
+`just destroy` removes the droplet, firewall, and DNS records. Two caveats:
 
-To genuinely retire everything, you must consciously lower that guard AND migrate state
-off the bucket first (terraform can't delete the bucket holding its own state mid-destroy):
+- **The DO default project can't be deleted.** A plain `terraform destroy` fails on it. If
+  you truly want to tear everything down, drop it from state first and re-import later:
 
-```bash
-# 1. Remove the prevent_destroy guard in spaces.tf (comment it out).
+  ```bash
+  just _tf 'state rm digitalocean_project.main'
+  just destroy
+  # later, to manage it again:
+  just _tf 'import digitalocean_project.main <project-id>'
+  ```
 
-# 2. Disable the backend and pull state back to local.
-mv terraform/backend.tf terraform/backend.tf.disabled
-cd terraform && terraform init -migrate-state
+- **The assets bucket must be empty to delete.** `digitalocean_spaces_bucket.assets` has no
+  `force_destroy`, so destroy fails if it holds objects (deliberate -- don't nuke published
+  assets by accident). Empty it first, or add `force_destroy = true` consciously.
 
-# 3. Destroy with local state (export TF_VAR_do_token + SPACES_* first, since the
-#    sops-wrapped recipe relies on the bucket that's about to vanish).
-terraform destroy
-```
-
-Then re-run the full bootstrap from the top. You'll rarely need this — only when
-validating the bootstrap procedure from absolute scratch.
+State is in git, so there's nothing to migrate before a destroy.
 
 ## What this does NOT manage
 
 - **The DNS zone itself.** `pytx.org` is managed in DigitalOcean outside terraform (the
   registrar's NS records point at DO). Terraform only creates leaf records
-  (`infra.pytx.org` A + AAAA) inside the existing zone — no `digitalocean_domain`
-  resource, so a `terraform destroy` can't accidentally delete the zone.
+  (`infra.pytx.org` A + AAAA) inside the existing zone -- no `digitalocean_domain` resource,
+  so a `terraform destroy` can't accidentally delete the zone.
+- **The Spaces access key.** Created once in the DO console; not terraform-managed.
 - **Reserved IPs** (extra $4/mo; skip unless we need a stable IP across droplet recreates).

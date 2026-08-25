@@ -162,23 +162,21 @@ before deploying.
 ### `terraform.sops.env`
 
 Credentials terraform needs to talk to DigitalOcean (the platform API for droplets/DNS,
-plus the Spaces S3-compatible API for remote state). The `bootstrap/justfile` terraform
-recipes wrap terraform with `sops exec-env` on this file, so the values are decrypted in
-memory and exported only for the terraform child process.
+plus the Spaces S3-compatible API for the public assets bucket). The `bootstrap/justfile`
+terraform recipes wrap terraform with `sops exec-env` on this file, so the values are
+decrypted in memory and exported only for the terraform child process. State is not remote;
+it lives sops-encrypted at `terraform/state.sops.json`, so no backend/AWS_* credentials.
 
 ```dotenv
 # DigitalOcean platform API token -- read/write. Generate at
 # https://cloud.digitalocean.com/account/api/tokens
 TF_VAR_do_token=dop_v1_REPLACE_ME
 
-# Spaces access key -- the same key you generated manually at
-# https://cloud.digitalocean.com/spaces/access_keys for the bootstrap.
-# The DO provider reads the SPACES_* names (for creating/managing the bucket);
-# the s3 backend reads the AWS_* names (for state read/write). Same values.
+# Spaces access key -- generated manually at
+# https://cloud.digitalocean.com/spaces/access_keys. The DO provider reads the
+# SPACES_* names to create/manage the assets bucket; the same key writes assets.
 SPACES_ACCESS_KEY_ID=REPLACE_ME
 SPACES_SECRET_ACCESS_KEY=REPLACE_ME
-AWS_ACCESS_KEY_ID=REPLACE_ME
-AWS_SECRET_ACCESS_KEY=REPLACE_ME
 ```
 
 ### `ansible.sops.yaml`

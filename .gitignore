@@ -314,3 +314,6 @@ keys.txt
 # droplet at /srv/pytexas; ansible clones these inside on first apply).
 /dispatch/
 /pytexas-discord-bot/
+
+# Loose DO token drop for rotating the sops secret; never commit.
+.terraform-token

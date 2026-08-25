@@ -19,3 +19,12 @@ creation_rules:
       - age:
           # mason -- laptop
           - age17u5zkzgr4ca49sl9n42zk6aruq8d5xntnuxkhyjwvku80tx93afqm7a0fz
+
+  # Terraform state -- encrypted at rest and committed to git (no remote backend).
+  # Encrypted whole-file (binary) by the `_tf` wrapper in bootstrap/justfile, which
+  # decrypts it before each terraform run and re-encrypts only when the state changed.
+  - path_regex: ^terraform/state\.sops\.json$
+    key_groups:
+      - age:
+          # mason -- laptop
+          - age17u5zkzgr4ca49sl9n42zk6aruq8d5xntnuxkhyjwvku80tx93afqm7a0fz

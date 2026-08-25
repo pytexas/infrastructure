@@ -4,7 +4,12 @@
 
 all:
   vars:
-    ansible_user: root
+    # Day-2 default: connect as the deploy user (root login is disabled by the
+    # bootstrap role after the first apply). `just apply` auto-detects and overrides
+    # this via `-e ansible_user=...` -- it falls back to root on a fresh droplet where
+    # the deploy user does not exist yet. For a direct `ansible-playbook` run against a
+    # brand-new droplet, override with `-e ansible_user=root`.
+    ansible_user: pytexas
     ansible_python_interpreter: /usr/bin/python3
 
   children:

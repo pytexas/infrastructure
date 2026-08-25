@@ -28,6 +28,17 @@ resource "digitalocean_droplet" "main" {
   monitoring = var.enable_monitoring
   ipv6       = true
 
+  # DO no longer enables backups from the bare `backups = true` toggle alone -- it needs a
+  # policy. Weekly keeps cost down (~$1/mo at this size) vs daily. Only set when backups are on.
+  dynamic "backup_policy" {
+    for_each = var.enable_backups ? [1] : []
+    content {
+      plan    = "weekly"
+      weekday = "SUN"
+      hour    = 8
+    }
+  }
+
   ssh_keys = [for k in data.digitalocean_ssh_keys.all.ssh_keys : k.id]
 
   tags = concat(local.common_tags, ["role:app"])
@@ -90,7 +101,7 @@ resource "digitalocean_project" "main" {
   environment = title(var.environment)
   resources = [
     digitalocean_droplet.main.urn,
-    digitalocean_spaces_bucket.tfstate.urn,
+    digitalocean_spaces_bucket.assets.urn,
     # Domain itself is managed outside terraform, but DO auto-attaches any
     # domain that has records to whichever project owns it. List the URN here
     # so terraform doesn't keep trying to remove it.

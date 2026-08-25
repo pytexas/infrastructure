@@ -10,6 +10,7 @@ description = "sops-encrypted files and examples are not leaks"
 paths = [
     '''secrets/.*\.sops\.env$''',
     '''secrets/.*\.sops\.yaml$''',
+    '''terraform/state\.sops\.json$''',
     '''\.env\.example$''',
     '''.*\.tfvars\.example$''',
 ]
