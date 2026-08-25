@@ -2,6 +2,7 @@
 
 ## Recent
 <!-- 10 most recent lessons, newest first -->
+- When main is squash-merged from a scaffold PR while a follow-up branch (e.g. a rename) is still open, the follow-up's merge from main becomes add/add conflicts across every touched file (merge base drops to the initial commit). If the only divergence is the follow-up's intended change, `git checkout --ours <files>` is the correct resolution. Then check `git status` for files the merge re-added under the pre-change name (a renamed-away secrets file) and `git rm` them — a conflict-marker-only sweep misses those (2026-08-23)
 - `prevent_destroy = true` on a self-referential state bucket fails at PLAN time before any resource is touched. `force_destroy = false` alone is a poor substitute — it only fires after `terraform destroy` has already torn down everything else and then chokes on the non-empty bucket, leaving a half-wrecked state (2026-05-26)
 - `terraform apply -replace=<resource>` is the idiom for "give me this one resource fresh, leave everything else alone" — the dependency graph auto-updates dependents (DNS records reading the new IP, firewall ID lists, project URN lists). Use this instead of full destroy + apply for "rebuild the droplet" workflows (2026-05-26)
 - When wrapping `terraform apply` with `just` recipes (apply, rebuild, etc.), mirror the `-auto-approve` flag across all variants — inconsistency surfaces as a silent hang at the "Enter a value: yes" prompt, indistinguishable from a true hang to the operator (2026-05-26)
@@ -11,7 +12,6 @@
 - Just's `set working-directory := ".."` cascades into recursive `just` invocations — a `default: @just --list` recipe in a nested justfile will silently load the parent's justfile instead of its own. Use `repo_root := justfile_directory() / ".."` + explicit `cd` per recipe instead. Test with bare `just`, not `just --list` (different code path) (2026-05-18)
 - `temporal-ts-net` defaults its tsnet state dir to `~/.config/tsnet-<hostname>/`, NOT the volume-mounted `/var/lib/tailscale` — pass `--tailscale-state-dir=/var/lib/tailscale` explicitly or the tailnet node name drifts (`-1`, `-2`, ...) on every container recreate (2026-05-18)
 - Compose `include:` puts every included service into the same project namespace — service-name collisions across files break the merge; rename your master substrate services with a project-specific prefix (e.g. `pytexas-temporal`) rather than the included services (2026-05-18)
-- Just's `[no-exit-message]` recipe attribute suppresses the "Recipe failed with exit code N" tracebacks on non-zero exits — use it on user-facing recipes that may legitimately exit 1 (unknown arg, missing precondition) (2026-05-18)
 
 ## Infrastructure (DigitalOcean / Terraform)
 

@@ -2,7 +2,7 @@
 
 PyTexas Foundation infrastructure-as-code. Stands up one DigitalOcean droplet in
 `sfo3`, hardened by ansible, hosting a unified docker compose project that includes
-the [`pretix-discord-middleware`](https://github.com/pytexas/pretix-discord-middleware)
+the [`dispatch`](https://github.com/pytexas/dispatch)
 and [`pytexas-discord-bot`](https://github.com/pytexas/pytexas-discord-bot) service
 repos as sub-clones.
 
@@ -173,7 +173,7 @@ just sops secrets/pytexas.sops.env
 #   TS_AUTHKEY=tskey-auth-...        # same value as above
 #   MIDDLEWARE_DOMAIN=infra.pytx.org
 
-just sops secrets/pretix-discord-middleware.sops.env
+just sops secrets/dispatch.sops.env
 # Paste:
 #   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 #   PRETIX_API_TOKEN=...
@@ -287,7 +287,7 @@ Three categories of secrets, two storage mechanisms:
 |---|---|---|---|
 | Bootstrap creds (first apply only) | Shell env vars | terraform, ansible | -- never on disk -- |
 | Operator-side (terraform / ansible) | `secrets/terraform.sops.env`, `secrets/ansible.sops.yaml` | `sops exec-env`, `community.sops.load_vars` | Operator laptop memory only |
-| Application secrets | `secrets/pytexas.sops.env`, `secrets/pretix-discord-middleware.sops.env`, `secrets/pytexas-discord-bot.sops.env` | docker compose `env_file:` | `.env` files on the droplet at `mode 0600` |
+| Application secrets | `secrets/pytexas.sops.env`, `secrets/dispatch.sops.env`, `secrets/pytexas-discord-bot.sops.env` | docker compose `env_file:` | `.env` files on the droplet at `mode 0600` |
 
 Decryption always happens on the operator's laptop via their age private key.
 The droplet never holds a decryption key; it only receives plaintext `.env`

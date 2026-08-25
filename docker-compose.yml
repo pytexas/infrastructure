@@ -13,7 +13,7 @@
 #   docker compose logs -f web
 
 include:
-  - ./pretix-discord-middleware/docker-compose.yml
+  - ./dispatch/docker-compose.yml
   - ./pytexas-discord-bot/docker-compose.yaml
 
 services:
