@@ -31,15 +31,15 @@ variable "droplet_name" {
 }
 
 variable "region" {
-  description = "DigitalOcean region slug. Used for the droplet AND the Spaces bucket holding terraform state -- keep them aligned for lowest latency on applies."
+  description = "DigitalOcean region slug. Used for the droplet and the Spaces assets bucket."
   type        = string
   default     = "sfo3"
 }
 
-variable "tfstate_bucket_name" {
-  description = "Globally unique name for the DigitalOcean Spaces bucket holding terraform state. Must match the value hardcoded in backend.tf (terraform backends do not accept variables)."
+variable "assets_bucket_name" {
+  description = "Globally unique name for the public DigitalOcean Spaces bucket holding web assets (page images, meetup banners, etc.)."
   type        = string
-  default     = "pytexas-tfstate"
+  default     = "pytexas-assets"
 }
 
 variable "droplet_size" {

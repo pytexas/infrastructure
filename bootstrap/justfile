@@ -12,15 +12,15 @@ default:
     @just --list
 
 # Full deploy: terraform apply + ansible playbook. Idempotent.
-apply: _tf-apply _ansible
+apply: (_tf "apply -auto-approve") _ansible
 
 # Preview terraform changes.
 plan:
     @just _tf plan
 
-# Tear everything down. The state bucket has prevent_destroy=true, so this FAILS at
-# plan time by design -- to actually retire the bucket, follow the full-teardown
-# steps in terraform/README.md. To just rebuild the droplet, use `just rebuild`.
+# Tear everything down (droplet, firewall, DNS, project). State lives in
+# terraform/state.sops.json in this repo, so there's nothing to migrate first.
+# To just rebuild the droplet instead, use `just rebuild`.
 destroy:
     @just _tf destroy
 
@@ -28,11 +28,10 @@ destroy:
 ip:
     @just _tf 'output -raw droplet_ipv4'
 
-# Replace the droplet from scratch, keeping the Spaces bucket / state / DNS.
-# Use this to "start the droplet over" without the full destroy+rebootstrap dance.
+# Replace the droplet from scratch, keeping state and DNS.
+# Use this to "start the droplet over" without a full destroy.
 # Follow with `just apply` to re-run ansible against the new droplet.
-rebuild:
-    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env 'terraform apply -auto-approve -replace=digitalocean_droplet.main'
+rebuild: (_tf "apply -auto-approve -replace=digitalocean_droplet.main")
 
 # Create or edit a sops-encrypted file.
 # Example: just sops secrets/pytexas.sops.env
@@ -46,7 +45,7 @@ rekey:
     set -euo pipefail
     cd "{{repo_root}}"
     shopt -s nullglob
-    files=(secrets/*.sops.env secrets/*.sops.yaml)
+    files=(secrets/*.sops.env secrets/*.sops.yaml terraform/*.sops.json)
     if [ ${#files[@]} -eq 0 ]; then echo "No secrets files yet."; exit 0; fi
     for f in "${files[@]}"; do
         echo "rekey: $f"
@@ -63,16 +62,54 @@ lint:
 
 # === Internal helpers ======================================================
 
+# Run a terraform command with state decrypted from terraform/state.sops.json.
+# State lives encrypted-at-rest in git (no remote backend): decrypt it into
+# terraform's working file, run the command, then re-encrypt IN PLACE only if the
+# state actually changed (so read-only commands don't churn git, and a fresh sops
+# nonce isn't written on every plan). Re-encryption also runs when terraform exits
+# non-zero, so a partial apply's state is never lost. Commit the file afterward.
 _tf cmd:
-    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env "terraform {{cmd}}"
-
-_tf-apply:
-    cd "{{repo_root}}/terraform" && sops exec-env ../secrets/terraform.sops.env 'terraform apply -auto-approve'
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{repo_root}}"
+    enc=terraform/state.sops.json
+    plain=terraform/terraform.tfstate
+    pre="$plain.pre"
+    if [ -f "$enc" ]; then
+        sops --decrypt --output-type binary "$enc" > "$plain"
+        cp -f "$plain" "$pre"
+    else
+        : > "$pre"
+    fi
+    ( cd terraform && sops exec-env ../secrets/terraform.sops.env "terraform {{cmd}}" ) && rc=0 || rc=$?
+    if [ -f "$plain" ] && ! cmp -s "$plain" "$pre"; then
+        cp -f "$plain" "$enc"
+        sops --encrypt --input-type binary --output-type json -i "$enc"
+        echo ">> terraform state changed -- re-encrypted $enc. Commit it: git add $enc && git commit" >&2
+    fi
+    rm -f "$pre"
+    exit $rc
 
 _ansible:
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{repo_root}}"
+    # `terraform output` needs the state on disk; decrypt it (read-only, no re-encrypt).
+    [ -f terraform/state.sops.json ] && sops --decrypt --output-type binary terraform/state.sops.json > terraform/terraform.tfstate
     ip=$(cd terraform && sops exec-env ../secrets/terraform.sops.env 'terraform output -raw droplet_ipv4')
     sed "s/REPLACE_WITH_DROPLET_IPV4/$ip/" ansible/inventory.yml > ansible/inventory.local.yml
-    cd ansible && ansible-playbook -i inventory.local.yml playbook.yml
+    # Pick the SSH user: the deploy user (pytexas) on an already-hardened droplet,
+    # root on a fresh one. The bootstrap role disables root login and creates the
+    # deploy user on first run, so re-applying as root fails afterward. Probe pytexas
+    # first (the common day-2 case) to avoid a needless failed root auth against fail2ban.
+    ssh_opts="-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    if ssh $ssh_opts "pytexas@$ip" true 2>/dev/null; then
+        user=pytexas
+    elif ssh $ssh_opts "root@$ip" true 2>/dev/null; then
+        user=root
+    else
+        echo "error: cannot SSH to $ip as pytexas or root -- check the droplet is up and your key is loaded (ssh-add -l)" >&2
+        exit 1
+    fi
+    echo "ansible: connecting as $user@$ip"
+    cd ansible && ansible-playbook -i inventory.local.yml -e ansible_user="$user" playbook.yml

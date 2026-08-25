@@ -63,7 +63,7 @@ infrastructure/
 ├── docker-compose.yml            # master compose, `include:`s the service repos
 ├── Caddyfile                     # reverse-proxy config
 ├── temporal.Dockerfile           # Temporal image with temporal-ts-net baked in
-├── terraform/                    # droplet, firewall, project, DNS, Spaces bucket (state)
+├── terraform/                    # droplet, firewall, project, DNS, public assets bucket; state in state.sops.json
 ├── ansible/                      # bootstrap → docker → tailscale → services
 ├── secrets/                      # sops-encrypted .env / .yaml files
 ├── .sops.yaml                    # sops creation rules (age recipient list)
@@ -196,52 +196,32 @@ operator removal, and lost-laptop recovery.
 Run **once** to provision the DigitalOcean droplet and everything else from scratch.
 All commands below run from `bootstrap/`.
 
+Terraform state is sops-encrypted in git (`terraform/state.sops.json`) -- no remote backend,
+no bootstrap dance. You need your age key at `~/.config/sops/age/keys.txt` to decrypt it.
+
 ```bash
-cd bootstrap
-
 # Install ansible collections (one-time, after git clone)
-just setup
+cd bootstrap && just setup
 
-# Bootstrap credentials -- only needed for the first apply, before
-# secrets/terraform.sops.env exists. Get the Spaces key at
-# https://cloud.digitalocean.com/spaces/access_keys (separate page from API tokens).
-export TF_VAR_do_token=dop_v1_xxxxxxxxxxxx
-export SPACES_ACCESS_KEY_ID=DO00...
-export SPACES_SECRET_ACCESS_KEY=...
-
-# 1. Initial terraform init (backend.tf is named backend.tf.disabled so it's invisible)
+# One-time: install terraform provider plugins
 cd ../terraform && terraform init && cd ../bootstrap
 
-# 2. First apply -- creates droplet + firewall + project + Spaces bucket + DNS records.
-#    State is local at this point.
-just apply
-
-# 3. Populate secrets/terraform.sops.env with the same three values you exported above
+# Make sure secrets/terraform.sops.env holds your credentials
 just sops secrets/terraform.sops.env
-# Paste:
+# Contents:
 #   TF_VAR_do_token=dop_v1_...
-#   SPACES_ACCESS_KEY_ID=DO00...
+#   SPACES_ACCESS_KEY_ID=DO00...        # manages the assets bucket + asset uploads
 #   SPACES_SECRET_ACCESS_KEY=...
-#   AWS_ACCESS_KEY_ID=DO00...           # same value as SPACES_ACCESS_KEY_ID
-#   AWS_SECRET_ACCESS_KEY=...           # same value as SPACES_SECRET_ACCESS_KEY
 
-# 4. Enable the remote backend
-mv ../terraform/backend.tf.disabled ../terraform/backend.tf
-
-# 5. Migrate local state into the Spaces bucket
-cd ../terraform && \
-    sops exec-env ../secrets/terraform.sops.env 'terraform init -migrate-state' && \
-    cd ../bootstrap
-
-# 6. Day-2 deploy (terraform reconciles, ansible runs)
+# Full deploy: terraform apply + ansible. Idempotent.
 just apply
+
+# Commit the encrypted state if the apply changed it (the wrapper prints a reminder).
+git -C .. add terraform/state.sops.json && git -C .. commit -S -m "terraform: update state"
 ```
 
-After step 5, the local `terraform.tfstate` becomes obsolete. The remote state in
-Spaces is canonical. Commit `terraform/backend.tf` (now enabled) and
-`secrets/terraform.sops.env` (now populated).
-
-Full bootstrap rationale and the destroy-ordering caveat live in `terraform/README.md`.
+The `_tf` wrapper decrypts state before each terraform run and re-encrypts it only when it
+changed. Full state workflow and the destroy caveats live in `terraform/README.md`.
 
 ## Day-2 operations
 
@@ -314,8 +294,8 @@ vector server-side.
 
 ## Subsystem documentation
 
-- **`terraform/README.md`** — bootstrap dance details, what each terraform resource
-  does, destroy ordering caveat, what the firewall opens.
+- **`terraform/README.md`** — sops-encrypted state workflow, what each terraform resource
+  does, the public assets bucket, destroy caveats, what the firewall opens.
 - **`ansible/README.md`** — role order, inventory generation, how the playbook is
   run.
 - **`secrets/README.md`** — operator onboarding, key rotation, lost-laptop recovery,

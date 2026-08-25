@@ -31,14 +31,14 @@ output "infra_fqdn" {
   value       = digitalocean_record.infra_a.fqdn
 }
 
-# --- Spaces (terraform state backend) -------------------------------------
+# --- Spaces (public web assets) -------------------------------------------
 
-output "tfstate_bucket_name" {
-  description = "Name of the Spaces bucket holding terraform state."
-  value       = digitalocean_spaces_bucket.tfstate.name
+output "assets_bucket_name" {
+  description = "Name of the public Spaces bucket for web assets."
+  value       = digitalocean_spaces_bucket.assets.name
 }
 
-output "tfstate_bucket_endpoint" {
-  description = "S3-compatible endpoint URL for the state bucket. Use this verbatim in backend.tf if you ever change region."
-  value       = "https://${digitalocean_spaces_bucket.tfstate.region}.digitaloceanspaces.com"
+output "assets_bucket_endpoint" {
+  description = "Base URL for public assets -- append /<object-key> to reach a file."
+  value       = "https://${digitalocean_spaces_bucket.assets.name}.${digitalocean_spaces_bucket.assets.region}.digitaloceanspaces.com"
 }

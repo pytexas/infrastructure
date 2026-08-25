@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 PyTexas Foundation infrastructure-as-code. Stands up one DigitalOcean droplet in `sfo3`,
 hardened by ansible, hosting a unified docker compose project that includes the
 `dispatch` and `pytexas-discord-bot` service repos as sub-clones. Terraform
-manages the droplet, firewall, DO project, DNS records on `pytx.org`, and a Spaces bucket
-that holds its own state via the self-referential bootstrap pattern.
+manages the droplet, firewall, DO project, DNS records on `pytx.org`, and a public Spaces
+bucket for web assets. Terraform state lives sops-encrypted in git (no remote backend).
 
 ## The architecture concept that governs everything
 
@@ -60,14 +60,18 @@ All `just <verb>` calls without a target print the unified help block.
 
 ## Non-obvious things to know
 
-### Self-referential terraform state
-The Spaces bucket that holds terraform state is itself a terraform-managed resource. The
-first apply runs with local state (`backend.tf` lives as `backend.tf.disabled` so terraform
-ignores it -- only `*.tf` is auto-loaded). After the bucket exists, you rename
-`backend.tf.disabled` → `backend.tf` and run `terraform init -migrate-state`. From then on
-state lives in Spaces. Full procedure in `terraform/README.md`. **Never `terraform destroy`
-without reading the destroy ordering caveat there** -- you'd delete the bucket holding
-your state mid-destroy.
+### Terraform state is sops-encrypted in git (no remote backend)
+State lives at `terraform/state.sops.json`, encrypted whole-file with age/sops and committed
+to the repo. There is no remote backend and no self-referential state bucket. The `_tf`
+wrapper in `bootstrap/justfile` decrypts the state into terraform's working file before each
+command, then re-encrypts it in place **only if the state actually changed** (so read-only
+commands don't churn git and a fresh sops nonce isn't written on every plan); it re-encrypts
+even when terraform exits non-zero, so a partial apply's state is never lost. All terraform
+runs go through this wrapper, so never call `terraform` directly outside `just`. After an
+apply that changed state, commit `terraform/state.sops.json`. Because state is local, there
+is **no state locking** -- fine for a solo/coordinated operator; coordinate before parallel
+applies. A fresh clone runs `terraform init` once (providers), then `just apply` -- no
+bootstrap dance.
 
 ### Sops + age, recipients in `.sops.yaml`
 All secrets live encrypted in `secrets/` under two patterns: `*.sops.env` (dotenv format,
@@ -112,21 +116,24 @@ checkout on the droplet. Both are gitignored at the repo root. The master compos
   `justfile_directory() / ".."` + explicit `cd` instead.
 
 ### DigitalOcean specifics
-- Spaces bucket creation uses the S3 API, not the platform API -- needs
-  `SPACES_ACCESS_KEY_ID` + `SPACES_SECRET_ACCESS_KEY` env vars in addition to
-  `TF_VAR_do_token`. Generate the Spaces key at
+- The public assets bucket (`digitalocean_spaces_bucket.assets`) is created via the S3 API,
+  not the platform API -- needs `SPACES_ACCESS_KEY_ID` + `SPACES_SECRET_ACCESS_KEY` env vars
+  in addition to `TF_VAR_do_token`. Generate the Spaces key at
   <https://cloud.digitalocean.com/spaces/access_keys> (a separate page from API tokens).
-- `digitalocean_spaces_key` grants: `fullaccess` is account-wide only; bucket-scoped
-  grants must be `read` or `readwrite`.
+- Assets bucket is public-read via a `digitalocean_spaces_bucket_policy` (anonymous
+  `s3:GetObject`), not the bucket ACL -- so files load by direct URL but the bucket isn't
+  listable. Writes still require the Spaces key.
 - DO requires exactly one default project per account; `digitalocean_project.is_default`
-  is in a `lifecycle { ignore_changes }` so terraform doesn't try to flip it.
+  is in a `lifecycle { ignore_changes }` so terraform doesn't try to flip it. The default
+  project also **cannot be deleted** -- a full `terraform destroy` fails on it, so
+  `state rm` the project (and re-`import` it later) if you ever tear everything down.
 - DO auto-attaches a domain URN to whichever project owns the records under it; that's
   why `"do:domain:${var.dns_domain}"` is in the project's `resources` list.
 
 ## Subsystem-specific docs (read these when working in those areas)
 
-- **`terraform/README.md`** -- bootstrap dance, what each resource does, destroy ordering
-  caveat.
+- **`terraform/README.md`** -- sops-encrypted state workflow, what each resource does, the
+  assets bucket, destroy caveats (default project).
 - **`ansible/README.md`** -- role order, how the inventory is generated from terraform
   output.
 - **`secrets/README.md`** -- multi-operator onboarding, key rotation, lost-laptop

@@ -1,29 +1,41 @@
-# ABOUTME: DigitalOcean Spaces bucket holding this configuration's own terraform state.
-# Self-referential: after the first apply, `terraform init -migrate-state` moves local
-# state into this bucket.
-#
-# The Spaces ACCESS KEY used to read/write state lives outside terraform -- you create
-# it once in the DO console (https://cloud.digitalocean.com/spaces/access_keys) and put
-# its access-key-id + secret-key into secrets/terraform.sops.env. We don't try to
-# terraform-manage that key at our scale; it's not worth the moving part.
+# ABOUTME: Public DigitalOcean Spaces bucket for web assets (page images, meetup
+# banners, and other public-facing files). Reads are public; writes require the
+# Spaces access key. Terraform state itself lives sops-encrypted in git (no remote
+# backend), so this bucket is ordinary infra -- NOT self-referential.
 
-resource "digitalocean_spaces_bucket" "tfstate" {
-  name   = var.tfstate_bucket_name
+resource "digitalocean_spaces_bucket" "assets" {
+  name   = var.assets_bucket_name
   region = var.region
-  acl    = "private"
 
-  versioning {
-    enabled = true
+  # Object-level public read is granted by the bucket policy below, not the ACL,
+  # so there's no anonymous bucket listing -- only direct-URL GETs.
+  acl = "private"
+}
+
+resource "digitalocean_spaces_bucket_cors_configuration" "assets" {
+  bucket = digitalocean_spaces_bucket.assets.name
+  region = digitalocean_spaces_bucket.assets.region
+
+  cors_rule {
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"]
+    allowed_headers = ["*"]
+    max_age_seconds = 3600
   }
+}
 
-  # Refuse to delete unless empty (it never is -- it holds state).
-  force_destroy = false
-
-  lifecycle {
-    # Make `terraform destroy` fail at PLAN time if it would remove this bucket,
-    # so a routine teardown of the droplet/services can't take the state bucket
-    # (and all state history) with it. To genuinely retire the bucket, comment
-    # this out, migrate state back to local, then destroy -- see terraform/README.md.
-    prevent_destroy = true
-  }
+# Anonymous GET on every object (so assets load in a browser), but no listing.
+resource "digitalocean_spaces_bucket_policy" "assets_public_read" {
+  region = digitalocean_spaces_bucket.assets.region
+  bucket = digitalocean_spaces_bucket.assets.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "PublicReadGetObject"
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "s3:GetObject"
+      Resource  = "arn:aws:s3:::${digitalocean_spaces_bucket.assets.name}/*"
+    }]
+  })
 }
