@@ -1,12 +1,15 @@
 # ABOUTME: Ansible Galaxy collections required by the playbook.
 # Install with `ansible-galaxy collection install -r requirements.yml`.
 
+# Minimums are pinned high enough to force a current install even when an older
+# distro-packaged collection (e.g. apt's community.general 8.x) is already present --
+# those old versions' callback plugins crash on recent ansible-core.
 collections:
   - name: ansible.posix
-    version: ">=1.5.0"
+    version: ">=2.0.0"
   - name: community.general
-    version: ">=8.0.0"
+    version: ">=10.0.0"
   - name: community.docker
-    version: ">=3.10.0"
+    version: ">=4.0.0"
   - name: community.sops
-    version: ">=1.6.0"
+    version: ">=2.0.0"

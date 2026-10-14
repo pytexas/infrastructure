@@ -185,12 +185,15 @@ Controller-side vars consumed by the playbook itself. Loaded via `community.sops
 in `playbook.yml`'s `pre_tasks`. These never reach the droplet.
 
 ```yaml
-# Tailscale auth key for joining the droplet host to the tailnet. Use the same key here
-# and in pytexas.sops.env (as TS_AUTHKEY) -- one reusable, pre-approved, tagged key
-# registers both the host and the Temporal container as separate tailnet nodes. Best
-# practice: create the key with tag:pytexas in https://login.tailscale.com/admin/settings/keys
-# so the registered devices show up under that tag in your ACLs.
-tailscale_auth_key: tskey-auth-REPLACE_ME
+# Credential for joining the droplet host to the tailnet, passed to `tailscale up`
+# --auth-key. Preferred: a Tailscale OAuth CLIENT SECRET (tskey-client-...) -- the CLI
+# exchanges it for a fresh key on every run, so it never expires, and the node is tagged
+# (tagged nodes have key expiry disabled). Create an OAuth client with the `auth_keys`
+# scope and tag:pytexas at https://login.tailscale.com/admin/settings/oauth, and make sure
+# tag:pytexas is in your ACL policy's tagOwners. A plain reusable, pre-approved, tagged
+# auth key (tskey-auth-...) also works -- then clear tailscale_authkey_query in group_vars.
+# The host and the Temporal container can share the same OAuth secret (see pytexas.sops.env).
+tailscale_auth_key: tskey-client-REPLACE_ME
 ```
 
 The `TAILSCALE_AUTH_KEY` env var is still honored as a fallback (in `group_vars/all.yml`)
@@ -203,10 +206,12 @@ this file exists, its value takes precedence.
 # Tailscale hostname the master Temporal dev server registers as on the tailnet.
 TS_HOSTNAME=pytexas-temporal
 
-# Tailscale auth key for the Temporal container (same value as `tailscale_auth_key`
-# in ansible.sops.yaml -- one reusable, pre-approved, tagged key serves both the
-# droplet host and the Temporal container).
+# Tailscale credential for the Temporal container. Today's image uses a plain auth key
+# (TS_AUTHKEY). STAGED migration: once temporal-ts-net wires tsnet's ClientSecret, set
+# TS_CLIENT_SECRET to the OAuth client secret (same value as tailscale_auth_key in
+# ansible.sops.yaml) and drop TS_AUTHKEY -- see docker-compose.yml and .env.example.
 TS_AUTHKEY=tskey-auth-REPLACE_ME
+# TS_CLIENT_SECRET=tskey-client-REPLACE_ME   # staged; activates with the new plugin image
 
 # Public hostname for the dispatch web service (used by master Caddy).
 MIDDLEWARE_DOMAIN=middleware.pytexas.org

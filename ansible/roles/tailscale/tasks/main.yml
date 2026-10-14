@@ -61,10 +61,15 @@
   failed_when: false
 
 - name: Bring tailscale up
+  # tailscale_auth_key may be an OAuth client secret (preferred) or a plain auth key; the
+  # CLI treats both as --auth-key. tailscale_authkey_query carries the OAuth query string
+  # (preauthorized/ephemeral) and is empty for a plain key. Advertise tags so the node is
+  # tagged (OAuth requires it, and tagged nodes don't expire).
   ansible.builtin.command: >-
     tailscale up
-    --authkey={{ tailscale_auth_key }}
+    --auth-key={{ tailscale_auth_key }}{{ tailscale_authkey_query }}
     --hostname={{ tailscale_hostname }}
+    {% if tailscale_advertise_tags %}--advertise-tags={{ tailscale_advertise_tags | join(',') }}{% endif %}
     {% if tailscale_ssh %}--ssh{% endif %}
     {{ tailscale_extra_args }}
   when: >

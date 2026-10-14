@@ -33,6 +33,13 @@ services:
       # writes state to ~/.config/tsnet-<hostname>/ (not in any volume) and
       # each restart registers as a fresh node, getting a "-N" suffix.
       - --tailscale-state-dir=/var/lib/tailscale
+      # --- Tailscale OAuth migration (STAGED; needs a temporal-ts-net build that wires
+      # tsnet.Server.ClientSecret + AdvertiseTags). When that image ships: put the OAuth
+      # client secret in .env as TS_CLIENT_SECRET (tsnet reads it from the env via
+      # env_file and self-exchanges it for a key on every start), drop TS_AUTHKEY, and
+      # uncomment the advertise-tags flag below. Tagged nodes don't expire -> no key
+      # rotation. Leaving it commented keeps the current TS_AUTHKEY image working.
+      # - --tailscale-advertise-tags=tag:pytexas
       - --ip=0.0.0.0
       - --db-filename=/data/temporal.db
     volumes:
