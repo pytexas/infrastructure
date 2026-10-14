@@ -13,12 +13,25 @@ docker_users:
 # --- Tailscale -------------------------------------------------------------
 # tailscale_auth_key is loaded from secrets/ansible.sops.yaml by the pre_tasks in
 # playbook.yml. The TAILSCALE_AUTH_KEY env var still works as a fallback when the sops
-# file is absent (useful in CI or for one-off bootstrap runs). Generate auth keys with
-# "ephemeral=false, reusable=false, preauth=true" at
-# https://login.tailscale.com/admin/settings/keys
+# file is absent (useful in CI or for one-off bootstrap runs).
+#
+# Preferred: store a Tailscale OAuth CLIENT SECRET here (format `tskey-client-...`). The
+# `tailscale up` CLI accepts it directly as --auth-key and exchanges it for a fresh key on
+# every run, so it never expires (unlike a 90-day auth key). The OAuth client must carry
+# `tag:pytexas` (and have the `auth_keys` scope); `tailscale_advertise_tags` applies it.
+# Tagged nodes have key expiry disabled, so the droplet stays on the tailnet indefinitely.
+# A plain reusable auth key still works too -- just clear tailscale_authkey_query then.
+# Create an OAuth client at https://login.tailscale.com/admin/settings/oauth
 tailscale_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') | default('', true) }}"
 tailscale_hostname: "{{ inventory_hostname }}"
 tailscale_ssh: true
+# Tags to advertise on `tailscale up`. Required when tailscale_auth_key is an OAuth secret.
+tailscale_advertise_tags:
+  - "tag:pytexas"
+# Query string appended to the OAuth client secret. preauthorized=true skips the manual
+# device-approval queue; ephemeral=false keeps the node registered when offline. Set to ""
+# if you ever switch tailscale_auth_key back to a plain pre-authorized auth key.
+tailscale_authkey_query: "?ephemeral=false&preauthorized=true"
 tailscale_extra_args: ""
 
 # --- Temporal --------------------------------------------------------------
